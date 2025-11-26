@@ -1,84 +1,103 @@
-import { Router } from 'express'
+import { Router, Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
+import { JWT_SECRET } from '../config/env'
 
 const router = Router()
 
 // User registration
-router.post('/register', async (req, res) => {
-  const { email, password, name } = req.body
-  // Basic validation
-  if (!email || !password || !name) {
-    return res.status(400).send('Missing required fields')
-  }
-  // Check if user already exists
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
-  })
-  if (existingUser) {
-    return res.status(409).send('User already exists')
-  }
+router.post('/register', async (req: Request, res: Response) => {
+  try {
+    const { email, password, name } = req.body
 
-  // Hash password
-  const hashedPassword = await bcrypt.hash(password, 10) // 10 = salt rounds
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash: hashedPassword,
-      name,
-    },
-  })
-  // Generate JWT token
-  const jwtSecret = process.env.JWT_SECRET
-  if (!jwtSecret) {
-    return res.status(500).send('JWT_SECRET is not configured')
-  }
-  const token = jwt.sign({ userId: user.id }, jwtSecret, {
-    expiresIn: '1h',
-  })
+    // Basic validation
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'Missing required fields' })
+    }
+    if (!email.includes('@')) {
+      return res.status(400).json({ error: 'Invalid email format' })
+    }
+    if (password.length < 8) {
+      return res
+        .status(400)
+        .json({ error: 'Password must be at least 8 characters' })
+    }
 
-  // Respond with token
-  res.status(201).json({
-    id: user.id,
-    email: user.email,
-    token,
-  })
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    })
+    if (existingUser) {
+      return res.status(409).json({ error: 'User already exists' })
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10) // 10 = salt rounds
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash: hashedPassword,
+        name,
+      },
+    })
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: '1h',
+    })
+    // Respond with token
+    res.status(201).json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      token,
+    })
+  } catch (error) {
+    console.error('Registration error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
 })
 
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body
-  const user = await prisma.user.findUnique({
-    where: { email },
-  })
-  if (!user) {
-    return res.status(401).send('Invalid email or password')
-  }
-  const isMatch = await bcrypt.compare(password, user.passwordHash)
-  if (!isMatch) {
-    return res.status(401).send('Invalid email or password')
-  }
-  const jwtSecret = process.env.JWT_SECRET
-  if (!jwtSecret) {
-    return res.status(500).send('JWT_SECRET is not configured')
-  }
-  const token = jwt.sign({ userId: user.id }, jwtSecret, {
-    expiresIn: '1h',
-  })
+// User login
+router.post('/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body
 
-  const safeUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      plan: true,
-      credits: true,
-      // passwordHash is excluded
-    },
-  })
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Missing required fields' })
+    }
 
-  res.json({ token, user: safeUser })
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        plan: true,
+        credits: true,
+        passwordHash: true,
+      },
+    })
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash)
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: '1h',
+    })
+
+    const { passwordHash, ...safeUser } = user
+    res.json({ token, user: safeUser })
+  } catch (error) {
+    console.error('Login error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
 })
 
 export default router

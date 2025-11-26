@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import { JWT_SECRET } from '../config/env'
 
 declare global {
   namespace Express {
@@ -23,15 +24,14 @@ export const authMiddleware = (
 
   try {
     // Verify token
-    const jwtSecret = process.env.JWT_SECRET
-    if (!jwtSecret) {
+    if (!JWT_SECRET) {
       return res.status(500).send('JWT_SECRET is not configured')
     }
-    const decoded = jwt.verify(token, jwtSecret) as { userId: string }
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
     // Attach user info to request
     req.user = { userId: decoded.userId }
     next()
-  } catch (errpr) {
+  } catch (error) {
     return res.status(401).json({ error: 'Invalid or expired token' })
   }
 }
