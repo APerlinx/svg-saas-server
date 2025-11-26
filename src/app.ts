@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
-import prisma from './lib/prisma'
+import userRoutes from './routes/user.routes'
+import authRoutes from './routes/auth.routes'
 
 const app = express()
 
@@ -12,10 +13,9 @@ app.get('/health', (req, res) => {
   res.send('OK')
 })
 
-// Example endpoint to get all users
-app.get('/users', async (req, res) => {
-  const users = await prisma.user.findMany()
-  res.json(users)
-})
+// users
+app.use('/users', userRoutes)
+//Auth
+app.use('/auth', authRoutes)
 
 export default app
