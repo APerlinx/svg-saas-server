@@ -1,7 +1,11 @@
 import { openai } from '../lib/openai'
 
-export async function generateSvg(prompt: string, style: string) {
+export async function generateSvg(
+  prompt: string,
+  style: string
+): Promise<string> {
   try {
+    // Call OpenAI API to generate SVG
     const response = await openai.chat.completions.create({
       model: 'gpt-5-mini',
       messages: [
@@ -23,13 +27,26 @@ export async function generateSvg(prompt: string, style: string) {
         },
       ],
     })
-    const svgCode = response.choices[0].message.content as string | null
-    if (!svgCode) {
+    // Extract SVG from response
+    const content = response.choices[0].message?.content
+    if (!content) {
       throw new Error('No SVG code generated')
     }
-    return svgCode
+    const trimmed = content.trim()
+
+    // Validate SVG structure
+    if (!trimmed.startsWith('<svg') || !trimmed.endsWith('</svg>')) {
+      throw new Error('Generated content is not a valid SVG element')
+    }
+
+    // Extract clean SVG (already validated, so we know it exists)
+    const svgStart = trimmed.indexOf('<svg')
+    const svgEnd = trimmed.lastIndexOf('</svg>') + 6
+    const svg = trimmed.slice(svgStart, svgEnd)
+
+    return svg
   } catch (error) {
     console.error('Error generating SVG:', error)
-    return null
+    throw new Error('Failed to generate SVG')
   }
 }
