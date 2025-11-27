@@ -3,7 +3,6 @@ import cors from 'cors'
 import userRoutes from './routes/user.routes'
 import authRoutes from './routes/auth.routes'
 import svgRoutes from './routes/svg.routes'
-import aiTestRoutes from './routes/aiTest.routes'
 
 const app = express()
 
@@ -14,14 +13,11 @@ app.use(express.json())
 app.get('/health', (req, res) => {
   res.send('OK')
 })
-
 // users
 app.use('/user', userRoutes)
 //Auth
 app.use('/auth', authRoutes)
 // SVG generation
 app.use('/svg', svgRoutes)
-// AI Test
-app.use('/ai-test', aiTestRoutes)
 
 export default app

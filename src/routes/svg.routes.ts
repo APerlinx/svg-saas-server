@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { checkCoinsMiddleware } from '../middleware/checkCoins'
 import prisma from '../lib/prisma'
+import { generateSvg } from '../services/aiService'
 
 const router = Router()
 
@@ -22,15 +23,14 @@ router.post(
       }
       const userId = req.user?.userId
 
-      // Here would be the SVG generation logic (omitted for brevity)
-      const svgUrl = `https://example.com/generated/${userId}/svg12345.svg` // AI generated SVG URL result
+      const svg = await generateSvg(prompt, style)
       const coinsUsed = 1
       const [svgGeneration, updatedUser] = await prisma.$transaction([
         prisma.svgGeneration.create({
           data: {
             userId: userId!,
             prompt,
-            svg: svgUrl,
+            svg: svg,
             style,
             coinsUsed,
           },
@@ -42,7 +42,7 @@ router.post(
       ])
 
       res.status(201).json({
-        svgUrl,
+        svg,
         svgGeneration: {
           id: svgGeneration.id,
           createdAt: svgGeneration.createdAt,
