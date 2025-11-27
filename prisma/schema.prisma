@@ -13,7 +13,7 @@ model User {
   passwordHash String          // bcrypt hash
   name         String?         
   plan         Plan            @default(FREE)
-  credits      Int             @default(100) // generations left, for example
+  coins      Int             @default(100) // generations left, for example
 
   generations  SvgGeneration[]
 
@@ -30,7 +30,7 @@ model SvgGeneration {
   svg        String   // the actual SVG code
   style      String?  // 'outline', 'duotone', etc.
   model      String?  // 'gpt-4.1', etc.
-  tokensUsed Int?     // optional
+  coinsUsed Int?     // optional
 
   createdAt  DateTime @default(now())
 }

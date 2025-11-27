@@ -32,7 +32,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         email: true,
         name: true,
         plan: true,
-        credits: true,
+        coins: true,
         createdAt: true,
         updatedAt: true,
         generations: true,

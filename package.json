@@ -19,6 +19,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "openai": "^6.9.1",
     "prisma": "^6.19.0"
   },
   "devDependencies": {

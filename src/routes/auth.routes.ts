@@ -74,7 +74,7 @@ router.post('/login', async (req: Request, res: Response) => {
         email: true,
         name: true,
         plan: true,
-        credits: true,
+        coins: true,
         passwordHash: true,
       },
     })
