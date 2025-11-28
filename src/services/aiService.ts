@@ -4,13 +4,16 @@ import { openai } from '../lib/openai'
  * Generates SVG content using OpenAI based on user prompt and style
  * @param prompt - User's description of the desired SVG
  * @param style - Visual style (minimalist, cartoon, etc.)
+ * @param model - AI model to use for generation
  * @returns Clean SVG string
  * @throws Error if generation fails or content is invalid
  */
 export async function generateSvg(
   prompt: string,
-  style: string
+  style: string,
+  model: string
 ): Promise<string> {
+  // TODO: Use model parameter to select different AI models if needed
   // Call OpenAI API to generate SVG
   const response = await openai.chat.completions.create({
     model: 'gpt-5-mini',

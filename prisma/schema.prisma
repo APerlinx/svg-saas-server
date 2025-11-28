@@ -29,9 +29,10 @@ model SvgGeneration {
   prompt     String
   svg        String   // the actual SVG code
   style      String?  // 'outline', 'duotone', etc.
-  model      String?  // 'gpt-4.1', etc.
-  coinsUsed Int?     // optional
-
+  model      String?  @default("gpt-5-mini")
+  coinsUsed  Int?     // optional
+  privacy    Boolean  @default(false)
+  
   createdAt  DateTime @default(now())
 }
 

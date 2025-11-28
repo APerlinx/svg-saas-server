@@ -9,6 +9,8 @@ const router = Router()
 interface GenerateSvgBody {
   prompt: string
   style: string
+  model: string
+  privacy?: boolean
 }
 
 router.post(
@@ -17,14 +19,21 @@ router.post(
   checkCoinsMiddleware,
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
-      const { prompt, style } = req.body
-      if (!prompt || !style) {
-        return res.status(400).json({ error: 'Prompt and style required' })
+      const { prompt, style, model, privacy } = req.body
+      if (!prompt) {
+        return res.status(400).json({ error: 'Prompt required' })
       }
       const userId = req.user?.userId
+      if (prompt.length < 10 || prompt.length > 500) {
+        return res.status(400).json({
+          error: 'Prompt length must be between 10 and 500 characters',
+        })
+      }
 
-      const svg = await generateSvg(prompt, style)
+      // Generate SVG using AI service
+      const svg = await generateSvg(prompt, style, model)
       const coinsUsed = 1
+      // Store SVG generation and decrement user coins in a transaction
       const [svgGeneration, updatedUser] = await prisma.$transaction([
         prisma.svgGeneration.create({
           data: {
@@ -33,6 +42,8 @@ router.post(
             svg: svg,
             style,
             coinsUsed,
+            model,
+            privacy,
           },
         }),
         prisma.user.update({
@@ -40,7 +51,7 @@ router.post(
           data: { coins: { decrement: 1 } },
         }),
       ])
-
+      // Respond with generated SVG and updated coin balance
       res.status(201).json({
         svg,
         svgGeneration: {
