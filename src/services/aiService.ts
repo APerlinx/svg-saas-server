@@ -45,15 +45,13 @@ Requirements:
 
   const trimmed = content.trim()
 
-  // Validate SVG structure
-  if (!trimmed.startsWith('<svg') || !trimmed.endsWith('</svg>')) {
+  // Validate and extract SVG //TODO: Improve validation to protect against malformed SVGs
+  const svgStart = trimmed.indexOf('<svg')
+  const svgEnd = trimmed.lastIndexOf('</svg>')
+
+  if (svgStart === -1 || svgEnd === -1) {
     throw new Error('Generated content is not a valid SVG element')
   }
 
-  // Extract clean SVG
-  const svgStart = trimmed.indexOf('<svg')
-  const svgEnd = trimmed.lastIndexOf('</svg>') + 6
-  const svg = trimmed.slice(svgStart, svgEnd)
-
-  return svg
+  return trimmed.slice(svgStart, svgEnd + 6)
 }
