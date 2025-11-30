@@ -10,8 +10,8 @@ const router = Router()
 
 interface GenerateSvgBody {
   prompt: string
-  style: string
-  model: string
+  style: SvgStyle
+  model?: AiModel
   privacy?: boolean
 }
 
