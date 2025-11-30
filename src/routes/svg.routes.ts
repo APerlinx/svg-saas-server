@@ -89,4 +89,52 @@ router.post(
   }
 )
 
+router.get('/history', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId
+
+    // Pagination parameters
+    const page = parseInt(req.query.page as string) || 1
+    const limit = parseInt(req.query.limit as string) || 10
+    const skip = (page - 1) * limit
+
+    // Get total count for pagination
+    const totalCount = await prisma.svgGeneration.count({ where: { userId } })
+    res.setHeader('X-Total-Count', totalCount.toString())
+
+    const generations = await prisma.svgGeneration.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      skip: skip,
+      take: limit,
+      select: {
+        id: true,
+        prompt: true,
+        style: true,
+        model: true,
+        privacy: true,
+        coinsUsed: true,
+        createdAt: true,
+      },
+    })
+
+    const totalPages = Math.ceil(totalCount / limit)
+    const hasMore = page < totalPages
+
+    res.json({
+      generations,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalCount,
+        limit,
+        hasMore,
+      },
+    })
+  } catch (error) {
+    console.error('Error fetching SVG history:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 export default router

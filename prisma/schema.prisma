@@ -34,6 +34,8 @@ model SvgGeneration {
   privacy    Boolean  @default(false)
   
   createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 enum Plan {
