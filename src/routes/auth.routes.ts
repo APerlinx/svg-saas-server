@@ -6,6 +6,51 @@ import { JWT_SECRET } from '../config/env'
 
 const router = Router()
 
+/**
+ * TODO: BEFORE PRODUCTION - Implement Refresh Token System
+ *
+ * CURRENT ISSUE:
+ * - Using single JWT with 1h expiration
+ * - When user "logs out", token is still valid until expiration (security risk)
+ * - Short expiration = poor UX (users logged out every hour)
+ * - Long expiration = security risk (stolen tokens valid for days/weeks)
+ *
+ * WHY REFRESH TOKENS?
+ * 1. Security: Access tokens expire quickly (15min) - limits damage if stolen
+ * 2. UX: Refresh tokens last longer (7-30 days) - users stay logged in
+ * 3. True Logout: Can revoke refresh tokens in database immediately
+ * 4. Token Revocation: Can invalidate specific sessions (e.g., "logout from all devices")
+ *
+ * WHAT YOU NEED:
+ * 1. Create RefreshToken model in Prisma schema
+ *    - Store refresh tokens in database with userId and expiration
+ * 2. Login/Register returns BOTH tokens:
+ *    - accessToken (short: 15min-1h) - for API requests
+ *    - refreshToken (long: 7-30d) - stored in DB and httpOnly cookie
+ * 3. Create /auth/refresh endpoint:
+ *    - Accepts refreshToken
+ *    - Validates against database
+ *    - Returns new accessToken
+ * 4. Logout endpoint:
+ *    - Deletes refreshToken from database
+ *    - Token immediately invalid (true logout)
+ * 5. Middleware checks:
+ *    - Verify accessToken on each request (fast, no DB lookup)
+ *    - If expired, frontend uses refreshToken to get new accessToken
+ *
+ * BENEFITS:
+ * - Balance security (short access tokens) with UX (long refresh tokens)
+ * - Logout actually works (revoke refresh token in DB)
+ * - Can implement "logout from all devices" (delete all user's refresh tokens)
+ * - Detect suspicious activity (monitor refresh token usage patterns)
+ *
+ * RESOURCES TO RESEARCH:
+ * - JWT refresh token pattern
+ * - Storing refresh tokens securely (httpOnly cookies vs localStorage)
+ * - Token rotation (issue new refresh token on each use)
+ * - Refresh token families (detect token reuse/theft)
+ */
+
 // User registration
 router.post('/register', async (req: Request, res: Response) => {
   try {

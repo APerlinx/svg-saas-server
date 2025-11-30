@@ -16,9 +16,9 @@ export const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string
 
 // Validation - Required environment variables
 if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET must be defined in .env file')
+  throw new Error('JWT_SECRET must be defined')
 }
 
 if (!OPENAI_API_KEY) {
-  throw new Error('OPENAI_API_KEY must be defined in .env file')
+  throw new Error('OPENAI_API_KEY must be defined')
 }

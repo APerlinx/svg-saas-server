@@ -15,10 +15,6 @@ export const authMiddleware = (
   const token = authHeader.substring(7)
 
   try {
-    // Verify token
-    if (!JWT_SECRET) {
-      return res.status(500).send('JWT_SECRET is not configured')
-    }
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
     // Attach user info to request
     req.user = { userId: decoded.userId }
@@ -41,10 +37,6 @@ export const optionalAuthMiddleware = (
   const token = authHeader.substring(7)
 
   try {
-    // Verify token
-    if (!JWT_SECRET) {
-      return res.status(500).send('JWT_SECRET is not configured')
-    }
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
     // Attach user info to request
     req.user = { userId: decoded.userId }
