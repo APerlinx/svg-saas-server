@@ -137,4 +137,46 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
   }
 })
 
+router.get('/public', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    // Pagination parameters
+    const page = parseInt(req.query.page as string) || 1
+    const limit = parseInt(req.query.limit as string) || 10
+    const skip = (page - 1) * limit
+
+    // Get total count for pagination
+    const totalCount = await prisma.svgGeneration.count({
+      where: { privacy: false },
+    })
+    res.setHeader('X-Total-Count', totalCount.toString())
+
+    const publicGenerations = await prisma.svgGeneration.findMany({
+      where: { privacy: false },
+      orderBy: { createdAt: 'desc' },
+      skip: skip,
+      take: limit,
+      select: {
+        id: true,
+        prompt: true,
+        style: true,
+        model: true,
+        privacy: true,
+        coinsUsed: true,
+        createdAt: true,
+      },
+    })
+
+    const totalPages = Math.ceil(totalCount / limit)
+    const hasMore = page < totalPages
+
+    res.json({
+      publicGenerations,
+      pagination: { currentPage: page, totalPages, totalCount, limit, hasMore },
+    })
+  } catch (error) {
+    console.error('Error fetching public SVGs:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 export default router
