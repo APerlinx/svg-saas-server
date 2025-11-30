@@ -3,6 +3,8 @@ import { authMiddleware } from '../middleware/auth'
 import { checkCoinsMiddleware } from '../middleware/checkCoins'
 import prisma from '../lib/prisma'
 import { generateSvg } from '../services/aiService'
+import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
+import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
 
 const router = Router()
 
@@ -20,30 +22,50 @@ router.post(
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
       const { prompt, style, model, privacy } = req.body
+      const userId = req.user!.userId
+
+      // Validate prompt
       if (!prompt) {
-        return res.status(400).json({ error: 'Prompt required' })
+        return res.status(400).json({ error: 'Prompt is required' })
       }
-      const userId = req.user?.userId
       if (prompt.length < 10 || prompt.length > 500) {
         return res.status(400).json({
           error: 'Prompt length must be between 10 and 500 characters',
         })
       }
 
-      // Generate SVG using AI service
-      const svg = await generateSvg(prompt, style, model)
+      // Validate style
+      if (!style || !VALID_SVG_STYLES.includes(style as SvgStyle)) {
+        return res.status(400).json({
+          error: `Invalid style. Must be one of: ${VALID_SVG_STYLES.join(
+            ', '
+          )}`,
+        })
+      }
+
+      // Validate model
+      if (model && !VALID_MODELS.includes(model as AiModel)) {
+        return res.status(400).json({
+          error: `Invalid model. Must be one of: ${VALID_MODELS.join(', ')}`,
+        })
+      }
+      const selectedModel = model || DEFAULT_MODEL
+      const isPrivate = privacy ?? false
+
+      // Generate SVG
+      const svg = await generateSvg(prompt, style, selectedModel)
       const coinsUsed = 1
       // Store SVG generation and decrement user coins in a transaction
       const [svgGeneration, updatedUser] = await prisma.$transaction([
         prisma.svgGeneration.create({
           data: {
-            userId: userId!,
+            userId,
             prompt,
             svg: svg,
             style,
             coinsUsed,
-            model,
-            privacy,
+            model: selectedModel,
+            privacy: isPrivate,
           },
         }),
         prisma.user.update({
