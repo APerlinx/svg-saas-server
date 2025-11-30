@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth'
 import { checkCoinsMiddleware } from '../middleware/checkCoins'
 import prisma from '../lib/prisma'
 import { generateSvg } from '../services/aiService'
@@ -100,7 +100,6 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
 
     // Get total count for pagination
     const totalCount = await prisma.svgGeneration.count({ where: { userId } })
-    res.setHeader('X-Total-Count', totalCount.toString())
 
     const generations = await prisma.svgGeneration.findMany({
       where: { userId },
@@ -137,7 +136,7 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
   }
 })
 
-router.get('/public', authMiddleware, async (req: Request, res: Response) => {
+router.get('/public', async (req: Request, res: Response) => {
   try {
     // Pagination parameters
     const page = parseInt(req.query.page as string) || 1
@@ -148,7 +147,6 @@ router.get('/public', authMiddleware, async (req: Request, res: Response) => {
     const totalCount = await prisma.svgGeneration.count({
       where: { privacy: false },
     })
-    res.setHeader('X-Total-Count', totalCount.toString())
 
     const publicGenerations = await prisma.svgGeneration.findMany({
       where: { privacy: false },
@@ -178,5 +176,43 @@ router.get('/public', authMiddleware, async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+router.get(
+  '/:id',
+  optionalAuthMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const currentUserId = req.user?.userId
+      const { id } = req.params
+
+      if (!id || id.trim() === '') {
+        return res.status(400).json({ error: 'Invalid SVG ID' })
+      }
+
+      // Fetch the SVG first
+      const svgGeneration = await prisma.svgGeneration.findUnique({
+        where: { id },
+      })
+
+      // Check if exists
+      if (!svgGeneration) {
+        return res.status(404).json({ error: 'SVG not found' })
+      }
+
+      // Authorization check
+      const isPublic = svgGeneration.privacy === false
+      const isOwner = currentUserId === svgGeneration.userId
+
+      if (!isPublic && !isOwner) {
+        return res.status(404).json({ error: 'SVG not found' })
+      }
+
+      res.json({ svgGeneration })
+    } catch (error) {
+      console.error('Error fetching SVG by ID:', error)
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
 
 export default router
