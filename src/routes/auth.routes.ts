@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from '../config/env'
+import { authMiddleware } from '../middleware/auth'
 
 const router = Router()
 
@@ -146,5 +147,34 @@ router.post('/login', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
+  // Since we're using stateless JWTs, logout is handled on the client side
+  // by deleting the token. Optionally, we could implement a token blacklist.
+  res.json({ message: 'Logged out successfully' })
+})
+
+router.get(
+  '/current-user',
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+    })
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    const safeUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      coins: user.coins || 0,
+    }
+
+    res.json(safeUser)
+  }
+)
 
 export default router
