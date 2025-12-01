@@ -74,7 +74,9 @@ router.post('/register', async (req: Request, res: Response) => {
       where: { email },
     })
     if (existingUser) {
-      return res.status(409).json({ error: 'User already exists' })
+      return res
+        .status(409)
+        .json({ error: 'Email is invalid or already taken' })
     }
 
     // Hash password
