@@ -13,7 +13,7 @@ model User {
   passwordHash String          // bcrypt hash
   name         String?         
   plan         Plan            @default(FREE)
-  coins      Int             @default(100) // generations left, for example
+  coins      Int             @default(10)
 
   generations  SvgGeneration[]
 
@@ -22,6 +22,11 @@ model User {
 
   resetPasswordToken   String?   // hashed token
   resetPasswordExpires DateTime?
+
+  termsAcceptedAt   DateTime? 
+  termsAcceptedIp   String?
+
+  @@index([email])
 }
 
 model SvgGeneration {
