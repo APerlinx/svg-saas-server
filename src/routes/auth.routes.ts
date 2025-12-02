@@ -9,6 +9,7 @@ import {
   hashResetToken,
 } from '../utils/createPasswordResetToken'
 import { sendPasswordResetEmail } from '../services/emailService'
+import { authLimiter, forgotPasswordLimiter } from '../middleware/limiter'
 
 const router = Router()
 
@@ -58,7 +59,7 @@ const router = Router()
  */
 
 // User registration
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body
 
@@ -112,7 +113,7 @@ router.post('/register', async (req: Request, res: Response) => {
 })
 
 // User login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password, rememberMe } = req.body
     console.log('Remember Me:', rememberMe)
@@ -183,76 +184,85 @@ router.get(
   }
 )
 
-router.post('/forgot-password', async (req: Request, res: Response) => {
-  try {
-    const { email } = req.body
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' })
-    }
-    const user = await prisma.user.findUnique({ where: { email } })
-    if (!user) {
-      console.log('Password reset requested for non-existent email:', email)
-      return res.status(200).json({
+router.post(
+  '/forgot-password',
+  forgotPasswordLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required' })
+      }
+      const user = await prisma.user.findUnique({ where: { email } })
+      if (!user) {
+        console.log('Password reset requested for non-existent email:', email)
+        return res.status(200).json({
+          message: 'If that email is registered, a reset link has been sent.',
+        })
+      }
+
+      const { resetToken, hashedToken, resetExpires } =
+        createPasswordResetToken()
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetPasswordToken: hashedToken,
+          resetPasswordExpires: resetExpires,
+        },
+      })
+      await sendPasswordResetEmail(email, resetToken)
+      console.log('Password reset token generated for:', email)
+      res.status(200).json({
         message: 'If that email is registered, a reset link has been sent.',
       })
+    } catch (error) {
+      console.error('Forgot password error:', error)
+      res.status(500).json({ error: 'Internal server error' })
     }
-
-    const { resetToken, hashedToken, resetExpires } = createPasswordResetToken()
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        resetPasswordToken: hashedToken,
-        resetPasswordExpires: resetExpires,
-      },
-    })
-    await sendPasswordResetEmail(email, resetToken)
-    console.log('Password reset token generated for:', email)
-    res.status(200).json({
-      message: 'If that email is registered, a reset link has been sent.',
-    })
-  } catch (error) {
-    console.error('Forgot password error:', error)
-    res.status(500).json({ error: 'Internal server error' })
   }
-})
+)
 
-router.post('/reset-password', async (req: Request, res: Response) => {
-  try {
-    const { resetToken, newPassword } = req.body
-    if (!resetToken || !newPassword) {
-      return res.status(400).json({ error: 'Missing required fields' })
-    }
-    if (newPassword.length < 8) {
-      return res
-        .status(400)
-        .json({ error: 'Password must be at least 8 characters' })
-    }
-    const hashedToken = hashResetToken(resetToken)
-    const user = await prisma.user.findFirst({
-      where: {
-        resetPasswordToken: hashedToken,
-        resetPasswordExpires: { gt: new Date() },
-      },
-    })
+router.post(
+  '/reset-password',
+  forgotPasswordLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const { resetToken, newPassword } = req.body
+      if (!resetToken || !newPassword) {
+        return res.status(400).json({ error: 'Missing required fields' })
+      }
+      if (newPassword.length < 8) {
+        return res
+          .status(400)
+          .json({ error: 'Password must be at least 8 characters' })
+      }
+      const hashedToken = hashResetToken(resetToken)
+      const user = await prisma.user.findFirst({
+        where: {
+          resetPasswordToken: hashedToken,
+          resetPasswordExpires: { gt: new Date() },
+        },
+      })
 
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired reset token' })
-    }
+      if (!user) {
+        return res.status(400).json({ error: 'Invalid or expired reset token' })
+      }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10)
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash: hashedPassword,
-        resetPasswordToken: null,
-        resetPasswordExpires: null,
-      },
-    })
-    res.status(200).json({ message: 'Password has been reset successfully' })
-  } catch (error) {
-    console.error('Reset password error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+      const hashedPassword = await bcrypt.hash(newPassword, 10)
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash: hashedPassword,
+          resetPasswordToken: null,
+          resetPasswordExpires: null,
+        },
+      })
+      res.status(200).json({ message: 'Password has been reset successfully' })
+    } catch (error) {
+      console.error('Reset password error:', error)
+      res.status(500).json({ error: 'Internal server error' })
+    }
   }
-})
+)
 
 export default router
