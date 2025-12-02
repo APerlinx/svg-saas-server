@@ -9,7 +9,7 @@ import {
   hashResetToken,
 } from '../utils/createPasswordResetToken'
 import { sendPasswordResetEmail } from '../services/emailService'
-import { authLimiter, forgotPasswordLimiter } from '../middleware/limiter'
+import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimiter'
 
 const router = Router()
 
