@@ -20,7 +20,8 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "openai": "^6.9.1",
-    "prisma": "^6.19.0"
+    "prisma": "^6.19.0",
+    "resend": "^6.5.2"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
