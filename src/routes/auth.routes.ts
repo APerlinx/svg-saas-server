@@ -8,8 +8,13 @@ import {
   createPasswordResetToken,
   hashResetToken,
 } from '../utils/createPasswordResetToken'
-import { sendPasswordResetEmail } from '../services/emailService'
+import {
+  sendPasswordResetEmail,
+  sendWelcomeEmail,
+} from '../services/emailService'
 import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimiter'
+import { send } from 'process'
+import { getUserIp } from '../utils/getUserIp'
 
 const router = Router()
 
@@ -61,8 +66,7 @@ const router = Router()
 // User registration
 router.post('/register', authLimiter, async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body
-
+    const { email, password, name, agreedToTerms } = req.body
     // Basic validation
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'Missing required fields' })
@@ -74,6 +78,12 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
       return res
         .status(400)
         .json({ error: 'Password must be at least 8 characters' })
+    }
+    if (agreedToTerms !== true) {
+      return res.status(400).json({
+        message:
+          'You must accept the Terms of Service and Privacy Policy to create an account',
+      })
     }
 
     // Check if user already exists
@@ -87,24 +97,31 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10) // 10 = salt rounds
+    const hashedPassword = await bcrypt.hash(password, 10)
     const user = await prisma.user.create({
       data: {
         email,
         passwordHash: hashedPassword,
         name,
+        coins: 10,
+        termsAcceptedAt: new Date(),
+        termsAcceptedIp: getUserIp(req),
       },
     })
     // Generate JWT token
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: '1h',
+      expiresIn: '24h',
     })
+
+    await sendWelcomeEmail(email, name)
+
     // Respond with token
     res.status(201).json({
       id: user.id,
-      email: user.email,
       name: user.name,
+      email: user.email,
       token,
+      coins: user.coins,
     })
   } catch (error) {
     console.error('Registration error:', error)
@@ -227,7 +244,8 @@ router.post(
   forgotPasswordLimiter,
   async (req: Request, res: Response) => {
     try {
-      const { resetToken, newPassword } = req.body
+      const { token: resetToken, newPassword } = req.body
+
       if (!resetToken || !newPassword) {
         return res.status(400).json({ error: 'Missing required fields' })
       }

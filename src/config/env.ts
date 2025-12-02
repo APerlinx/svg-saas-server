@@ -24,6 +24,7 @@ if (!OPENAI_API_KEY) {
 
 // Email Service
 export const RESEND_API_KEY = process.env.RESEND_API_KEY as string
+
 if (!RESEND_API_KEY) {
   throw new Error('RESEND_API_KEY must be defined in .env file')
 }
