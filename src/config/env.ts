@@ -38,3 +38,12 @@ export const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
   throw new Error('Google OAuth credentials must be defined in .env file')
 }
+
+// GitHub OAuth - validate at startup
+export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID
+export const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET
+export const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI
+
+if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || !GITHUB_REDIRECT_URI) {
+  throw new Error('GitHub OAuth credentials must be defined in .env file')
+}

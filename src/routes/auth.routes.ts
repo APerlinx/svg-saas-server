@@ -122,6 +122,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
       id: user.id,
       name: user.name,
       email: user.email,
+      avatar: user.avatar,
       token,
       coins: user.coins,
     })
@@ -145,6 +146,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
         id: true,
         email: true,
         name: true,
+        avatar: true,
         plan: true,
         coins: true,
         passwordHash: true,
@@ -198,6 +200,7 @@ router.get(
       id: user.id,
       name: user.name,
       email: user.email,
+      avatar: user.avatar,
       coins: user.coins || 0,
     }
 
@@ -306,7 +309,6 @@ router.get('/google', (req: Request, res: Response, next) => {
     state,
   })(req, res, next)
 })
-
 // Handle callback from Google
 router.get(
   '/google/callback',
@@ -360,6 +362,80 @@ router.get(
       res.redirect(finalUrl)
     } catch (error) {
       console.error('❌ Google OAuth callback error:', error)
+      res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
+    }
+  }
+)
+
+// GitHub OAuth
+router.get('/github', (req: Request, res: Response, next) => {
+  const redirectUrl = (req.query.redirectUrl as string) || '/'
+
+  // Store redirectUrl in state parameter to retrieve after OAuth callback
+  const state = Buffer.from(
+    JSON.stringify({ redirectUrl, timestamp: Date.now() })
+  ).toString('base64')
+
+  // Redirect user to GitHub's login page
+  passport.authenticate('github', {
+    scope: ['user:email'],
+    state,
+  })(req, res, next)
+})
+
+// Handle callback from GitHub
+router.get(
+  '/github/callback',
+  passport.authenticate('github', {
+    session: false,
+    failureRedirect: `${FRONTEND_URL}/signin?error=oauth_failed`,
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      // Check if user exists first
+      if (!req.user) {
+        return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
+      }
+
+      const user = req.user as PrismaUser
+
+      if (!user?.id) {
+        return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+        expiresIn: '24h',
+      })
+
+      // Extract redirectUrl from state parameter
+      const state = req.query.state as string
+      let redirectUrl = '/' // Default
+
+      if (state) {
+        try {
+          const decoded = JSON.parse(Buffer.from(state, 'base64').toString())
+
+          const stateAge = Date.now() - (decoded.timestamp || 0)
+          if (stateAge > 10 * 60 * 1000) {
+            console.warn('⚠️  OAuth state expired, using default redirect')
+          } else {
+            redirectUrl = decoded.redirectUrl || '/'
+          }
+        } catch (error) {
+          console.error('❌ Error decoding state:', error)
+        }
+      }
+
+      const finalUrl = `${FRONTEND_URL}/auth/callback?token=${token}&redirect=${encodeURIComponent(
+        redirectUrl
+      )}`
+      console.log('✅ Redirecting to:', finalUrl)
+
+      // Redirect to frontend with token and original redirectUrl
+      res.redirect(finalUrl)
+    } catch (error) {
+      console.error('❌ GitHub OAuth callback error:', error)
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
   }

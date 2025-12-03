@@ -16,6 +16,7 @@ model User {
   providerId   String?         @unique
   plan         Plan            @default(FREE)
   coins        Int             @default(10)
+  avatar                String? 
 
   generations  SvgGeneration[]
 
