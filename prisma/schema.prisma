@@ -10,10 +10,12 @@ generator client {
 model User {
   id           String          @id @default(cuid())
   email        String          @unique
-  passwordHash String          // bcrypt hash
+  passwordHash String?          // bcrypt hash
   name         String?         
+  provider     AuthProvider    @default(EMAIL)
+  providerId   String?         @unique
   plan         Plan            @default(FREE)
-  coins      Int             @default(10)
+  coins        Int             @default(10)
 
   generations  SvgGeneration[]
 
@@ -27,6 +29,7 @@ model User {
   termsAcceptedIp   String?
 
   @@index([email])
+  @@index([providerId])
 }
 
 model SvgGeneration {
@@ -50,4 +53,10 @@ enum Plan {
   FREE
   STUDENT
   PRO
+}
+
+enum AuthProvider {
+  EMAIL    // Traditional email/password
+  GOOGLE   // Google OAuth
+  GITHUB   // GitHub OAuth
 }

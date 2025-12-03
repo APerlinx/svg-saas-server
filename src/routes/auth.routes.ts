@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
-import { JWT_SECRET } from '../config/env'
+import { FRONTEND_URL, JWT_SECRET } from '../config/env'
 import { authMiddleware } from '../middleware/auth'
+import { User as PrismaUser } from '@prisma/client'
 import {
   createPasswordResetToken,
   hashResetToken,
@@ -13,8 +14,9 @@ import {
   sendWelcomeEmail,
 } from '../services/emailService'
 import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimiter'
-import { send } from 'process'
 import { getUserIp } from '../utils/getUserIp'
+import passport from '../config/passport'
+import { requireUserId } from '../utils/getUserId'
 
 const router = Router()
 
@@ -133,7 +135,6 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
 router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password, rememberMe } = req.body
-    console.log('Remember Me:', rememberMe)
     if (!email || !password) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
@@ -154,15 +155,14 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash)
+    const isMatch = await bcrypt.compare(password, user.passwordHash!)
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: rememberMe ? '30d' : '1h',
+      expiresIn: rememberMe ? '30d' : '24h',
     })
-    console.log('Generated token:', token)
     const { passwordHash, ...safeUser } = user
     res.json({ token, user: safeUser })
   } catch (error) {
@@ -182,8 +182,12 @@ router.get(
   '/current-user',
   authMiddleware,
   async (req: Request, res: Response) => {
+    const userId = requireUserId(req)
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
     const user = await prisma.user.findUnique({
-      where: { id: req.user!.userId },
+      where: { id: userId },
     })
 
     if (!user) {
@@ -279,6 +283,84 @@ router.post(
     } catch (error) {
       console.error('Reset password error:', error)
       res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
+
+// Google OAuth
+router.get('/google', (req: Request, res: Response, next) => {
+  console.log('=== Starting Google OAuth Flow ===')
+
+  const redirectUrl = (req.query.redirectUrl as string) || '/'
+
+  console.log('Redirect URL:', redirectUrl)
+
+  // Store redirectUrl in state parameter to retrieve after OAuth callback
+  const state = Buffer.from(
+    JSON.stringify({ redirectUrl, timestamp: Date.now() })
+  ).toString('base64')
+
+  // Redirect user to Google's login page
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    state,
+  })(req, res, next)
+})
+
+// Handle callback from Google
+router.get(
+  '/google/callback',
+  passport.authenticate('google', {
+    session: false,
+    failureRedirect: `${FRONTEND_URL}/signin?error=oauth_failed`,
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      // Check if user exists first
+      if (!req.user) {
+        return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
+      }
+
+      const user = req.user as PrismaUser
+
+      if (!user?.id) {
+        return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+        expiresIn: '24h',
+      })
+
+      // Extract redirectUrl from state parameter
+      const state = req.query.state as string
+      let redirectUrl = '/' // Default
+
+      if (state) {
+        try {
+          const decoded = JSON.parse(Buffer.from(state, 'base64').toString())
+
+          const stateAge = Date.now() - (decoded.timestamp || 0)
+          if (stateAge > 10 * 60 * 1000) {
+            console.warn('⚠️  OAuth state expired, using default redirect')
+          } else {
+            redirectUrl = decoded.redirectUrl || '/'
+          }
+        } catch (error) {
+          console.error('❌ Error decoding state:', error)
+        }
+      }
+
+      const finalUrl = `${FRONTEND_URL}/auth/callback?token=${token}&redirect=${encodeURIComponent(
+        redirectUrl
+      )}`
+      console.log('✅ Redirecting to:', finalUrl)
+
+      // Redirect to frontend with token and original redirectUrl
+      res.redirect(finalUrl)
+    } catch (error) {
+      console.error('❌ Google OAuth callback error:', error)
+      res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
   }
 )

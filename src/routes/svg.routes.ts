@@ -5,6 +5,8 @@ import prisma from '../lib/prisma'
 import { generateSvg } from '../services/aiService'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
+import { getUserId, requireUserId } from '../utils/getUserId'
+import { get } from 'http'
 
 const router = Router()
 
@@ -22,7 +24,7 @@ router.post(
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
       const { prompt, style, model, privacy } = req.body
-      const userId = req.user!.userId
+      const userId = requireUserId(req)
 
       // Validate prompt
       if (!prompt) {
@@ -91,7 +93,7 @@ router.post(
 
 router.get('/history', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId
+    const userId = requireUserId(req)
 
     // Pagination parameters
     const page = parseInt(req.query.page as string) || 1
@@ -182,7 +184,7 @@ router.get(
   optionalAuthMiddleware,
   async (req: Request, res: Response) => {
     try {
-      const currentUserId = req.user?.userId
+      const currentUserId = getUserId(req)
       const { id } = req.params
 
       if (!id || id.trim() === '') {

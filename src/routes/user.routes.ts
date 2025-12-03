@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { authMiddleware } from '../middleware/auth'
+import { requireUserId } from '../utils/getUserId'
 
 const router = Router()
 
@@ -25,8 +26,9 @@ router.get('/', authMiddleware, async (req, res) => {
 // return user data (without passwordHash)
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const userId = requireUserId(req)
     const user = await prisma.user.findUnique({
-      where: { id: req.user?.userId },
+      where: { id: userId },
       select: {
         id: true,
         email: true,

@@ -9,6 +9,7 @@ export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 
 // Authentication
 export const JWT_SECRET = process.env.JWT_SECRET as string
+
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET must be defined')
 }
@@ -27,4 +28,13 @@ export const RESEND_API_KEY = process.env.RESEND_API_KEY as string
 
 if (!RESEND_API_KEY) {
   throw new Error('RESEND_API_KEY must be defined in .env file')
+}
+
+// Google OAuth - validate at startup
+export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
+export const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
+export const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI
+
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
+  throw new Error('Google OAuth credentials must be defined in .env file')
 }

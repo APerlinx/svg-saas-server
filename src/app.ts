@@ -3,6 +3,7 @@ import cors from 'cors'
 import userRoutes from './routes/user.routes'
 import authRoutes from './routes/auth.routes'
 import svgRoutes from './routes/svg.routes'
+import passport from './config/passport'
 
 const app = express()
 
@@ -17,10 +18,14 @@ app.use(
 
 app.use(express.json())
 
+// Initialize Passport middleware
+app.use(passport.initialize())
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.send('OK')
 })
+
 // users
 app.use('/api/user', userRoutes)
 //Auth

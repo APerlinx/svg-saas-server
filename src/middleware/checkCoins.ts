@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
+import { requireUserId } from '../utils/getUserId'
 
 // Middleware to check if user has enough coins
 export const checkCoinsMiddleware = async (
@@ -8,7 +9,7 @@ export const checkCoinsMiddleware = async (
   next: NextFunction
 ) => {
   try {
-    const userId = req.user?.userId
+    const userId = requireUserId(req)
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
@@ -23,8 +24,6 @@ export const checkCoinsMiddleware = async (
     // Attach user info to request for downstream handlers
     req.user = {
       userId: user.id,
-      coins: user.coins,
-      plan: user.plan,
     }
 
     next()
