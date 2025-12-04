@@ -6,6 +6,7 @@ import svgRoutes from './routes/svg.routes'
 import passport from './config/passport'
 import { FRONTEND_URL } from './config/env'
 import cookieParser from 'cookie-parser'
+import { generateCsrfToken, validateCsrfToken } from './middleware/csrf'
 
 const app = express()
 
@@ -14,12 +15,15 @@ app.use(
     origin: FRONTEND_URL,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   })
 )
 
 app.use(express.json())
 app.use(cookieParser())
+
+// Add CSRF token generation middleware
+app.use(generateCsrfToken)
 
 // Initialize Passport middleware
 app.use(passport.initialize())
@@ -29,11 +33,11 @@ app.get('/api/health', (req, res) => {
   res.send('OK')
 })
 
-// users
-app.use('/api/user', userRoutes)
 //Auth
-app.use('/api/auth', authRoutes)
+app.use('/api/auth', validateCsrfToken, authRoutes)
+// users
+app.use('/api/user', validateCsrfToken, userRoutes)
 // SVG generation
-app.use('/api/svg', svgRoutes)
+app.use('/api/svg', validateCsrfToken, svgRoutes)
 
 export default app
