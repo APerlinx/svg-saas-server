@@ -87,19 +87,19 @@ passport.use(
               console.log('Welcome email sent to:', email)
             } catch (emailError) {
               console.error('Failed to send welcome email:', emailError)
-
-              // Update Avatar if changed on google
-              if (avatar && user.avatar !== avatar) {
-                console.log('Updating avatar for user:', email)
-                user = await prisma.user.update({
-                  where: { id: user.id },
-                  data: { avatar },
-                })
-              }
             }
           }
         } else {
           console.log('Existing user found:', email)
+
+          // Update Avatar if changed on google
+          if (avatar && user.avatar !== avatar) {
+            console.log('Updating avatar for user:', email)
+            user = await prisma.user.update({
+              where: { id: user.id },
+              data: { avatar },
+            })
+          }
         }
 
         console.log('Passport strategy: Returning user with id:', user.id)

@@ -17,6 +17,7 @@ import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimiter'
 import { getUserIp } from '../utils/getUserIp'
 import passport from '../config/passport'
 import { requireUserId } from '../utils/getUserId'
+import { sanitizeInput } from '../utils/sanitizeInput'
 
 const router = Router()
 
@@ -68,7 +69,10 @@ const router = Router()
 // User registration
 router.post('/register', authLimiter, async (req: Request, res: Response) => {
   try {
-    const { email, password, name, agreedToTerms } = req.body
+    let { email, password, name, agreedToTerms } = req.body
+
+    email = sanitizeInput(email?.toLowerCase() || '')
+    name = sanitizeInput(name || '')
     // Basic validation
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'Missing required fields' })
@@ -112,7 +116,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     })
     // Generate JWT token
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: '24h',
+      expiresIn: '1hr',
     })
 
     await sendWelcomeEmail(email, name)
@@ -135,7 +139,8 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
 // User login
 router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
-    const { email, password, rememberMe } = req.body
+    let { email, password, rememberMe } = req.body
+    email = sanitizeInput(email?.toLowerCase() || '')
     if (!email || !password) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
@@ -163,7 +168,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: rememberMe ? '30d' : '24h',
+      expiresIn: rememberMe ? '30d' : '1hr',
     })
     const { passwordHash, ...safeUser } = user
     res.json({ token, user: safeUser })
@@ -292,11 +297,7 @@ router.post(
 
 // Google OAuth
 router.get('/google', (req: Request, res: Response, next) => {
-  console.log('=== Starting Google OAuth Flow ===')
-
   const redirectUrl = (req.query.redirectUrl as string) || '/'
-
-  console.log('Redirect URL:', redirectUrl)
 
   // Store redirectUrl in state parameter to retrieve after OAuth callback
   const state = Buffer.from(
@@ -331,7 +332,7 @@ router.get(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-        expiresIn: '24h',
+        expiresIn: '1h',
       })
 
       // Extract redirectUrl from state parameter
