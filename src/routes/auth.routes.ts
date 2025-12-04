@@ -18,56 +18,24 @@ import { getUserIp } from '../utils/getUserIp'
 import passport from '../config/passport'
 import { requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
-import { ACCESS_TOKEN_EXPIRY } from '../constants/tokenExpiry'
-import { clearAuthCookie, setAuthCookie } from '../utils/setAuthCookie'
-import { clear } from 'console'
+import {
+  ACCESS_TOKEN_EXPIRY,
+  REFRESH_TOKEN_EXPIRY_DAYS,
+} from '../constants/tokenExpiry'
+import {
+  clearAuthCookie,
+  setAccessTokenCookie,
+  setAuthCookie,
+  setRefreshTokenCookie,
+} from '../utils/setAuthCookie'
+import {
+  createRefreshToken,
+  revokeAllUserTokens,
+  revokeRefreshToken,
+  verifyRefreshToken,
+} from '../utils/refreshToken'
 
 const router = Router()
-
-/**
- * TODO: BEFORE PRODUCTION - Implement Refresh Token System
- *
- * CURRENT ISSUE:
- * - Using single JWT with 1h expiration
- * - When user "logs out", token is still valid until expiration (security risk)
- * - Short expiration = poor UX (users logged out every hour)
- * - Long expiration = security risk (stolen tokens valid for days/weeks)
- *
- * WHY REFRESH TOKENS?
- * 1. Security: Access tokens expire quickly (15min) - limits damage if stolen
- * 2. UX: Refresh tokens last longer (7-30 days) - users stay logged in
- * 3. True Logout: Can revoke refresh tokens in database immediately
- * 4. Token Revocation: Can invalidate specific sessions (e.g., "logout from all devices")
- *
- * WHAT YOU NEED:
- * 1. Create RefreshToken model in Prisma schema
- *    - Store refresh tokens in database with userId and expiration
- * 2. Login/Register returns BOTH tokens:
- *    - accessToken (short: 15min-1h) - for API requests
- *    - refreshToken (long: 7-30d) - stored in DB and httpOnly cookie
- * 3. Create /auth/refresh endpoint:
- *    - Accepts refreshToken
- *    - Validates against database
- *    - Returns new accessToken
- * 4. Logout endpoint:
- *    - Deletes refreshToken from database
- *    - Token immediately invalid (true logout)
- * 5. Middleware checks:
- *    - Verify accessToken on each request (fast, no DB lookup)
- *    - If expired, frontend uses refreshToken to get new accessToken
- *
- * BENEFITS:
- * - Balance security (short access tokens) with UX (long refresh tokens)
- * - Logout actually works (revoke refresh token in DB)
- * - Can implement "logout from all devices" (delete all user's refresh tokens)
- * - Detect suspicious activity (monitor refresh token usage patterns)
- *
- * RESOURCES TO RESEARCH:
- * - JWT refresh token pattern
- * - Storing refresh tokens securely (httpOnly cookies vs localStorage)
- * - Token rotation (issue new refresh token on each use)
- * - Refresh token families (detect token reuse/theft)
- */
 
 // User registration
 router.post('/register', authLimiter, async (req: Request, res: Response) => {
@@ -117,15 +85,25 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
         termsAcceptedIp: getUserIp(req),
       },
     })
-    // Generate JWT token
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+    // Generate access token (short-lived)
+    const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     })
 
+    // Generate refresh token (long-lived, stored in DB)
+    const refreshToken = await createRefreshToken(
+      user.id,
+      REFRESH_TOKEN_EXPIRY_DAYS,
+      getUserIp(req),
+      req.headers['user-agent']
+    )
+
+    // Send welcome email
     await sendWelcomeEmail(email, name)
 
-    // Set authentication cookie
-    setAuthCookie(res, token)
+    // Set both cookies
+    setAccessTokenCookie(res, accessToken)
+    setRefreshTokenCookie(res, refreshToken, false)
 
     res.status(201).json({
       user: {
@@ -173,11 +151,23 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+    // Generate access token
+    const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     })
 
-    setAuthCookie(res, token, rememberMe)
+    // Generate refresh token
+    const expiryDays = rememberMe ? 30 : REFRESH_TOKEN_EXPIRY_DAYS
+    const refreshToken = await createRefreshToken(
+      user.id,
+      expiryDays,
+      getUserIp(req),
+      req.headers['user-agent']
+    )
+
+    // Set both cookies
+    setAccessTokenCookie(res, accessToken)
+    setRefreshTokenCookie(res, refreshToken, rememberMe)
 
     const { passwordHash, ...safeUser } = user
     res.json({ user: safeUser })
@@ -189,8 +179,54 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
 
 // User logout
 router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
-  clearAuthCookie(res)
-  res.json({ message: 'Logged out successfully' })
+  try {
+    const refreshToken = req.cookies.refreshToken
+
+    // Revoke refresh token from database
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken)
+    }
+
+    // Clear cookies
+    clearAuthCookie(res)
+
+    res.json({ message: 'Logged out successfully' })
+  } catch (error) {
+    console.error('Logout error:', error)
+    // Still clear cookies even if DB operation fails
+    clearAuthCookie(res)
+    res.json({ message: 'Logged out successfully' })
+  }
+})
+
+// Refresh access token using refresh token
+router.post('/refresh', async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.cookies.refreshToken
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'No refresh token provided' })
+    }
+
+    // Verify refresh token and get userId
+    const userId = await verifyRefreshToken(refreshToken)
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' })
+    }
+
+    // Generate new access token
+    const newAccessToken = jwt.sign({ userId }, JWT_SECRET, {
+      expiresIn: ACCESS_TOKEN_EXPIRY,
+    })
+
+    // Set new access token cookie
+    setAccessTokenCookie(res, newAccessToken)
+
+    res.json({ message: 'Token refreshed successfully' })
+  } catch (error) {
+    console.error('Token refresh error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
 })
 
 // Get current authenticated user
@@ -298,7 +334,13 @@ router.post(
           resetPasswordExpires: null,
         },
       })
-      res.status(200).json({ message: 'Password has been reset successfully' })
+
+      // IMPORTANT: Revoke all refresh tokens when password is reset (security)
+      await revokeAllUserTokens(user.id)
+
+      res.status(200).json({
+        message: 'Password has been reset successfully. Please log in again.',
+      })
     } catch (error) {
       console.error('Reset password error:', error)
       res.status(500).json({ error: 'Internal server error' })
@@ -340,12 +382,22 @@ router.get(
         return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
       }
 
-      // Generate JWT token
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      // Generate access token
+      const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
         expiresIn: ACCESS_TOKEN_EXPIRY,
       })
 
-      setAuthCookie(res, token)
+      // Generate refresh token
+      const refreshToken = await createRefreshToken(
+        user.id,
+        REFRESH_TOKEN_EXPIRY_DAYS,
+        getUserIp(req),
+        req.headers['user-agent']
+      )
+
+      // Set both cookies
+      setAccessTokenCookie(res, accessToken)
+      setRefreshTokenCookie(res, refreshToken, false)
 
       // Extract redirectUrl from state parameter
       const state = req.query.state as string
@@ -357,6 +409,7 @@ router.get(
 
           const stateAge = Date.now() - (decoded.timestamp || 0)
           if (stateAge > 10 * 60 * 1000) {
+            // State too old, use default
           } else {
             redirectUrl = decoded.redirectUrl || '/'
           }
@@ -407,11 +460,22 @@ router.get(
         return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
       }
 
-      // Generate JWT token
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      // Generate access token
+      const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
         expiresIn: ACCESS_TOKEN_EXPIRY,
       })
-      setAuthCookie(res, token)
+
+      // Generate refresh token
+      const refreshToken = await createRefreshToken(
+        user.id,
+        REFRESH_TOKEN_EXPIRY_DAYS,
+        getUserIp(req),
+        req.headers['user-agent']
+      )
+
+      // Set both cookies
+      setAccessTokenCookie(res, accessToken)
+      setRefreshTokenCookie(res, refreshToken, false)
 
       // Extract redirectUrl from state parameter
       const state = req.query.state as string
@@ -423,6 +487,7 @@ router.get(
 
           const stateAge = Date.now() - (decoded.timestamp || 0)
           if (stateAge > 10 * 60 * 1000) {
+            // State too old, use default
           } else {
             redirectUrl = decoded.redirectUrl || '/'
           }

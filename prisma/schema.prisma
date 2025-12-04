@@ -19,7 +19,8 @@ model User {
   avatar                String? 
 
   generations  SvgGeneration[]
-
+  refreshTokens RefreshToken[]
+  
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
@@ -48,6 +49,24 @@ model SvgGeneration {
   createdAt  DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique  // The actual refresh token (hashed)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  // Optional: Track token usage for security
+  lastUsedAt DateTime?
+  ipAddress  String?
+  userAgent  String?
+
+  @@index([userId])
+  @@index([token])
 }
 
 enum Plan {

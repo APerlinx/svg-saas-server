@@ -69,13 +69,6 @@ export const validateCsrfToken = (
 
   // Validate: both must exist and match
   if (!headerToken || !cookieToken || headerToken !== cookieToken) {
-    console.error('❌ CSRF validation failed')
-    console.error('   Path:', req.path)
-    console.error('   Method:', req.method)
-    console.error('   Header token:', headerToken ? 'exists' : 'missing')
-    console.error('   Cookie token:', cookieToken ? 'exists' : 'missing')
-    console.error('   Match:', headerToken === cookieToken)
-
     return res.status(403).json({
       error: 'Invalid CSRF token',
       message: 'Request blocked for security reasons',
