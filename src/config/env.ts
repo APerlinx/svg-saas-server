@@ -4,6 +4,12 @@ dotenv.config()
 
 // Server Configuration
 export const PORT = process.env.PORT || 4000
+
+// Environment detection
+export const NODE_ENV = process.env.NODE_ENV || 'development'
+export const IS_PRODUCTION = NODE_ENV === 'production'
+export const IS_DEVELOPMENT = NODE_ENV === 'development'
+
 // Frontend URL
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 

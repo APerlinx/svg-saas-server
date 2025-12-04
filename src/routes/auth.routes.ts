@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
-import { FRONTEND_URL, JWT_SECRET } from '../config/env'
+import { FRONTEND_URL, IS_PRODUCTION, JWT_SECRET } from '../config/env'
 import { authMiddleware } from '../middleware/auth'
 import { User as PrismaUser } from '@prisma/client'
 import {
@@ -18,6 +18,9 @@ import { getUserIp } from '../utils/getUserIp'
 import passport from '../config/passport'
 import { requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
+import { ACCESS_TOKEN_EXPIRY } from '../constants/tokenExpiry'
+import { clearAuthCookie, setAuthCookie } from '../utils/setAuthCookie'
+import { clear } from 'console'
 
 const router = Router()
 
@@ -116,19 +119,22 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     })
     // Generate JWT token
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: '1hr',
+      expiresIn: ACCESS_TOKEN_EXPIRY,
     })
 
     await sendWelcomeEmail(email, name)
 
-    // Respond with token
+    // Set authentication cookie
+    setAuthCookie(res, token)
+
     res.status(201).json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-      token,
-      coins: user.coins,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        coins: user.coins,
+        avatar: user.avatar,
+      },
     })
   } catch (error) {
     console.error('Registration error:', error)
@@ -168,19 +174,22 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: rememberMe ? '30d' : '1hr',
+      expiresIn: ACCESS_TOKEN_EXPIRY,
     })
+
+    setAuthCookie(res, token, rememberMe)
+
     const { passwordHash, ...safeUser } = user
-    res.json({ token, user: safeUser })
+    res.json({ user: safeUser })
   } catch (error) {
     console.error('Login error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
+// User logout
 router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
-  // Since im using stateless JWTs, logout is handled on the client side by deleting the token.
-  // TODO: I should implement a token blacklist.
+  clearAuthCookie(res)
   res.json({ message: 'Logged out successfully' })
 })
 
@@ -213,6 +222,7 @@ router.get(
   }
 )
 
+// Forgot password
 router.post(
   '/forgot-password',
   forgotPasswordLimiter,
@@ -251,6 +261,7 @@ router.post(
   }
 )
 
+// Reset password
 router.post(
   '/reset-password',
   forgotPasswordLimiter,
@@ -319,7 +330,6 @@ router.get(
   }),
   async (req: Request, res: Response) => {
     try {
-      // Check if user exists first
       if (!req.user) {
         return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
       }
@@ -332,8 +342,10 @@ router.get(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-        expiresIn: '1h',
+        expiresIn: ACCESS_TOKEN_EXPIRY,
       })
+
+      setAuthCookie(res, token)
 
       // Extract redirectUrl from state parameter
       const state = req.query.state as string
@@ -345,24 +357,17 @@ router.get(
 
           const stateAge = Date.now() - (decoded.timestamp || 0)
           if (stateAge > 10 * 60 * 1000) {
-            console.warn('⚠️  OAuth state expired, using default redirect')
           } else {
             redirectUrl = decoded.redirectUrl || '/'
           }
         } catch (error) {
-          console.error('❌ Error decoding state:', error)
+          console.error('Error decoding state:', error)
         }
       }
 
-      const finalUrl = `${FRONTEND_URL}/auth/callback?token=${token}&redirect=${encodeURIComponent(
-        redirectUrl
-      )}`
-      console.log('✅ Redirecting to:', finalUrl)
-
-      // Redirect to frontend with token and original redirectUrl
-      res.redirect(finalUrl)
+      res.redirect(`${FRONTEND_URL}${redirectUrl}`)
     } catch (error) {
-      console.error('❌ Google OAuth callback error:', error)
+      console.error('Google OAuth callback error:', error)
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
   }
@@ -383,7 +388,6 @@ router.get('/github', (req: Request, res: Response, next) => {
     state,
   })(req, res, next)
 })
-
 // Handle callback from GitHub
 router.get(
   '/github/callback',
@@ -393,7 +397,6 @@ router.get(
   }),
   async (req: Request, res: Response) => {
     try {
-      // Check if user exists first
       if (!req.user) {
         return res.redirect(`${FRONTEND_URL}/signin?error=no_user`)
       }
@@ -406,8 +409,9 @@ router.get(
 
       // Generate JWT token
       const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-        expiresIn: '24h',
+        expiresIn: ACCESS_TOKEN_EXPIRY,
       })
+      setAuthCookie(res, token)
 
       // Extract redirectUrl from state parameter
       const state = req.query.state as string
@@ -419,7 +423,6 @@ router.get(
 
           const stateAge = Date.now() - (decoded.timestamp || 0)
           if (stateAge > 10 * 60 * 1000) {
-            console.warn('⚠️  OAuth state expired, using default redirect')
           } else {
             redirectUrl = decoded.redirectUrl || '/'
           }
@@ -428,15 +431,9 @@ router.get(
         }
       }
 
-      const finalUrl = `${FRONTEND_URL}/auth/callback?token=${token}&redirect=${encodeURIComponent(
-        redirectUrl
-      )}`
-      console.log('✅ Redirecting to:', finalUrl)
-
-      // Redirect to frontend with token and original redirectUrl
-      res.redirect(finalUrl)
+      res.redirect(`${FRONTEND_URL}${redirectUrl}`)
     } catch (error) {
-      console.error('❌ GitHub OAuth callback error:', error)
+      console.error('GitHub OAuth callback error:', error)
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
   }
