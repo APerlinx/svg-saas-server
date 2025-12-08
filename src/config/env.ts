@@ -16,8 +16,8 @@ export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 // Authentication
 export const JWT_SECRET = process.env.JWT_SECRET as string
 
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET must be defined')
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be defined and at least 32 characters long')
 }
 
 // AI Models / APIs

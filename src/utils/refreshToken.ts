@@ -79,9 +79,13 @@ export const revokeRefreshToken = async (plainToken: string) => {
     .update(plainToken)
     .digest('hex')
 
-  await prisma.refreshToken.delete({
-    where: { token: hashedToken },
-  })
+  try {
+    await prisma.refreshToken.delete({
+      where: { token: hashedToken },
+    })
+  } catch (error) {
+    console.log('Refresh token not found (may already be revoked)')
+  }
 }
 
 /**
@@ -91,4 +95,43 @@ export const revokeAllUserTokens = async (userId: string) => {
   await prisma.refreshToken.deleteMany({
     where: { userId },
   })
+}
+
+// Add this new function
+export const rotateRefreshToken = async (
+  oldPlainToken: string,
+  userId: string,
+  expiresInDays: number = 7,
+  ipAddress?: string,
+  userAgent?: string
+) => {
+  // Hash the old token
+  const hashedToken = crypto
+    .createHash('sha256')
+    .update(oldPlainToken)
+    .digest('hex')
+
+  // Verify it exists and get the record
+  const tokenRecord = await prisma.refreshToken.findUnique({
+    where: { token: hashedToken },
+  })
+
+  if (!tokenRecord || tokenRecord.expiresAt < new Date()) {
+    return null
+  }
+
+  // Delete the old token
+  await prisma.refreshToken.delete({
+    where: { id: tokenRecord.id },
+  })
+
+  // Create a new token with same expiry duration
+  const newPlainToken = await createRefreshToken(
+    userId,
+    expiresInDays,
+    ipAddress,
+    userAgent
+  )
+
+  return newPlainToken
 }

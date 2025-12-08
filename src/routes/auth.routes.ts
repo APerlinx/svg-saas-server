@@ -32,6 +32,7 @@ import {
   createRefreshToken,
   revokeAllUserTokens,
   revokeRefreshToken,
+  rotateRefreshToken,
   verifyRefreshToken,
 } from '../utils/refreshToken'
 
@@ -202,15 +203,16 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
 // Refresh access token using refresh token
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const refreshToken = req.cookies.refreshToken
-    if (!refreshToken) {
+    const oldRefreshToken = req.cookies.refreshToken
+    if (!oldRefreshToken) {
       return res.status(401).json({ error: 'No refresh token provided' })
     }
 
     // Verify refresh token and get userId
-    const userId = await verifyRefreshToken(refreshToken)
+    const userId = await verifyRefreshToken(oldRefreshToken)
 
     if (!userId) {
+      clearAuthCookie(res)
       return res.status(401).json({ error: 'Invalid or expired refresh token' })
     }
 
@@ -219,14 +221,59 @@ router.post('/refresh', async (req: Request, res: Response) => {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     })
 
-    // Set new access token cookie
+    // ROTATION: Create new refresh token and delete old one
+    const newRefreshToken = await rotateRefreshToken(
+      oldRefreshToken,
+      userId,
+      REFRESH_TOKEN_EXPIRY_DAYS,
+      getUserIp(req),
+      req.headers['user-agent']
+    )
+
+    if (!newRefreshToken) {
+      clearAuthCookie(res)
+      return res.status(401).json({ error: 'Token rotation failed' })
+    }
+
+    // Set both new tokens
     setAccessTokenCookie(res, newAccessToken)
+    setRefreshTokenCookie(res, newRefreshToken, false)
 
     res.json({ message: 'Token refreshed successfully' })
   } catch (error) {
     console.error('Token refresh error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
+})
+
+// Get active sessions
+router.get('/sessions', authMiddleware, async (req, res) => {
+  const userId = requireUserId(req)
+
+  const sessions = await prisma.refreshToken.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      createdAt: true,
+      lastUsedAt: true,
+      ipAddress: true,
+      userAgent: true,
+    },
+  })
+
+  res.json({ sessions })
+})
+
+// Revoke specific session
+router.delete('/sessions/:id', authMiddleware, async (req, res) => {
+  const userId = requireUserId(req)
+  const { id } = req.params
+
+  await prisma.refreshToken.deleteMany({
+    where: { id, userId }, // Ensure user owns this token
+  })
+
+  res.json({ message: 'Session revoked' })
 })
 
 // Get current authenticated user

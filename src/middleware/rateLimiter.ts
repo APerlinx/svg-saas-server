@@ -18,7 +18,7 @@ export const createRateLimiter = (
 // Specific limiters for different routes
 export const authLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  100, // 5 attempts change in production!
+  5, // 5 attempts change in production!
   'Too many authentication attempts. Please try again later.'
 )
 
