@@ -6,6 +6,10 @@ import { generateSvg } from '../services/aiService'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
 import { getUserId, requireUserId } from '../utils/getUserId'
+import { sanitizeInput } from '../utils/sanitizeInput'
+import { sanitizeSvg } from '../utils/sanitizeSvg'
+import { dailyGenerationLimit } from '../middleware/dailyLimit'
+import { svgGenerationLimiter } from '../middleware/rateLimiter'
 
 const router = Router()
 
@@ -20,12 +24,14 @@ router.post(
   '/generate-svg',
   authMiddleware,
   checkCoinsMiddleware,
+  svgGenerationLimiter,
+  dailyGenerationLimit(50),
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
       const { prompt, style, model, privacy } = req.body
       const userId = requireUserId(req)
 
-      // Validate prompt
+      // Validate and sanitize prompt
       if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' })
       }
@@ -33,6 +39,28 @@ router.post(
         return res.status(400).json({
           error: 'Prompt length must be between 10 and 500 characters',
         })
+      }
+      const sanitizedPrompt = sanitizeInput(prompt) // Basic sanitization
+      // Forbidden patterns
+      const forbiddenPatterns = [
+        /\<script/i,
+        /javascript:/i,
+        /onerror=/i,
+        /onload=/i,
+        /<iframe/i,
+        /eval\(/i,
+        /system.*prompt/i,
+        /ignore.*instruction/i,
+        /you are now/i,
+      ]
+
+      for (const pattern of forbiddenPatterns) {
+        if (pattern.test(sanitizedPrompt)) {
+          return res.status(400).json({
+            error:
+              'Prompt contains forbidden content. Please rephrase your request.',
+          })
+        }
       }
 
       // Validate style
@@ -53,8 +81,9 @@ router.post(
       const selectedModel = model || DEFAULT_MODEL
       const isPrivate = privacy ?? false
 
-      // Generate SVG
-      const svg = await generateSvg(prompt, style, selectedModel)
+      // # Generate SVG #
+      const rawSvg = await generateSvg(sanitizedPrompt, style, selectedModel)
+      const cleanSvg = sanitizeSvg(rawSvg)
 
       const coinsUsed = 1
       // Store SVG generation and decrement user coins in a transaction
@@ -63,7 +92,7 @@ router.post(
           data: {
             userId,
             prompt,
-            svg: svg,
+            svg: cleanSvg,
             style,
             coinsUsed,
             model: selectedModel,
@@ -75,10 +104,10 @@ router.post(
           data: { coins: { decrement: 1 } },
         }),
       ])
-      console.log('returned svg:', svg)
+      console.log('returned svg:', cleanSvg)
       // Respond with generated SVG
       res.status(201).json({
-        svgCode: svg,
+        svgCode: cleanSvg,
       })
     } catch (error) {
       console.error('SVG Generation error:', error)

@@ -13,6 +13,7 @@ declare global {
     // For JWT auth - authMiddleware sets this (can be JwtPayload or full PrismaUser from OAuth)
     interface Request {
       user?: JwtPayload | PrismaUser
+      dailyGenerationCount?: number
     }
   }
 }
