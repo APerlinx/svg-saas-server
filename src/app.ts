@@ -7,6 +7,7 @@ import passport from './config/passport'
 import { FRONTEND_URL } from './config/env'
 import cookieParser from 'cookie-parser'
 import { generateCsrfToken, validateCsrfToken } from './middleware/csrf'
+import { apiLimiter } from './middleware/rateLimiter'
 
 const app = express()
 
@@ -32,7 +33,7 @@ app.use(passport.initialize())
 app.get('/api/health', (req, res) => {
   res.send('OK')
 })
-
+app.use('/api', apiLimiter)
 //Auth
 app.use('/api/auth', validateCsrfToken, authRoutes)
 // users

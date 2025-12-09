@@ -6,7 +6,6 @@ import { generateSvg } from '../services/aiService'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
 import { getUserId, requireUserId } from '../utils/getUserId'
-import { get } from 'http'
 
 const router = Router()
 
@@ -56,9 +55,10 @@ router.post(
 
       // Generate SVG
       const svg = await generateSvg(prompt, style, selectedModel)
+
       const coinsUsed = 1
       // Store SVG generation and decrement user coins in a transaction
-      const [svgGeneration, updatedUser] = await prisma.$transaction([
+      await prisma.$transaction([
         prisma.svgGeneration.create({
           data: {
             userId,
@@ -75,14 +75,10 @@ router.post(
           data: { coins: { decrement: 1 } },
         }),
       ])
-      // Respond with generated SVG and updated coin balance
+      console.log('returned svg:', svg)
+      // Respond with generated SVG
       res.status(201).json({
-        svg,
-        svgGeneration: {
-          id: svgGeneration.id,
-          createdAt: svgGeneration.createdAt,
-        },
-        remainingCoins: updatedUser.coins,
+        svgCode: svg,
       })
     } catch (error) {
       console.error('SVG Generation error:', error)
