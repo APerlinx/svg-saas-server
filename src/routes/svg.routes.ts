@@ -23,8 +23,8 @@ interface GenerateSvgBody {
 router.post(
   '/generate-svg',
   authMiddleware,
-  checkCoinsMiddleware,
   svgGenerationLimiter,
+  checkCoinsMiddleware,
   dailyGenerationLimit(50),
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {

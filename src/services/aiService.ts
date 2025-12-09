@@ -16,7 +16,7 @@ export async function generateSvg(
   // TODO: Use model parameter to select different AI models if needed
   // Call OpenAI API to generate SVG
   const response = await openai.chat.completions.create({
-    model: 'gpt-5-mini',
+    model: 'gpt-4o',
     messages: [
       {
         role: 'system',
