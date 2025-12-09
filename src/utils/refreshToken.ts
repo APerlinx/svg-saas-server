@@ -121,7 +121,7 @@ export const rotateRefreshToken = async (
   }
 
   // Delete the old token
-  await prisma.refreshToken.delete({
+  await prisma.refreshToken.deleteMany({
     where: { id: tokenRecord.id },
   })
 
