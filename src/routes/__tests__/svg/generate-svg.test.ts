@@ -1,49 +1,76 @@
-import request from 'supertest'
-import express from 'express'
-import router from '../../svg.routes'
-import prisma from '../../../lib/prisma'
-import { generateSvg } from '../../../services/aiService'
-import { VALID_SVG_STYLES } from '../../../constants/svgStyles'
-import { DEFAULT_MODEL } from '../../../constants/models'
-import { authMiddleware } from '../../../middleware/auth'
-
-jest.mock('../../../lib/prisma')
+jest.mock('../../../lib/prisma', () => ({
+  __esModule: true,
+  default: {
+    $transaction: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    svgGeneration: {
+      create: jest.fn(),
+    },
+  },
+}))
 jest.mock('../../../services/aiService', () => ({
+  __esModule: true,
   generateSvg: jest.fn(),
 }))
 jest.mock('../../../middleware/auth', () => ({
+  __esModule: true,
   authMiddleware: (req: any, res: any, next: any) => {
     req.user = { id: 'user1' }
     next()
   },
   optionalAuthMiddleware: (req: any, res: any, next: any) => next(),
-  checkCoinsMiddleware: (req: any, res: any, next: any) => next(),
   svgGenerationLimiter: (req: any, res: any, next: any) => next(),
   dailyGenerationLimit: () => (req: any, res: any, next: any) => next(),
 }))
+jest.mock('../../../middleware/checkCoins', () => ({
+  __esModule: true,
+  checkCoinsMiddleware: (req: any, res: any, next: any) => next(),
+}))
 jest.mock('../../../utils/getUserId', () => ({
+  __esModule: true,
   requireUserId: (req: any) => req.user.id,
   getUserId: (req: any) => req.user?.id,
 }))
 jest.mock('../../../utils/sanitizeInput', () => ({
+  __esModule: true,
   sanitizeInput: (input: string) => input,
 }))
 jest.mock('../../../utils/sanitizeSvg', () => ({
+  __esModule: true,
   sanitizeSvg: (svg: string) => svg,
 }))
 
-const app = express()
-app.use(express.json())
-app.use('/svg', router)
+import request from 'supertest'
+import express from 'express'
+import prisma from '../../../lib/prisma'
+import { generateSvg } from '../../../services/aiService'
+import { VALID_SVG_STYLES } from '../../../constants/svgStyles'
+import { DEFAULT_MODEL } from '../../../constants/models'
+import { checkCoinsMiddleware } from '../../../middleware/checkCoins'
+import { authMiddleware } from '../../../middleware/auth'
 
-describe('POST /svg/generate-svg', () => {
+let app: express.Express
+
+beforeAll(async () => {
+  const routerModule = await import('../../svg.routes')
+  const router = routerModule.default
+
+  app = express()
+  app.use(express.json())
+  app.use('/api/svg', router)
+})
+
+describe('POST /generate-svg', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
   it('should return 400 if prompt is missing', async () => {
     const res = await request(app)
-      .post('/svg/generate-svg')
+      .post('/api/svg/generate-svg')
       .send({ style: VALID_SVG_STYLES[0] })
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/Prompt is required/)
@@ -51,7 +78,7 @@ describe('POST /svg/generate-svg', () => {
 
   it('should return 400 if prompt is too short', async () => {
     const res = await request(app)
-      .post('/svg/generate-svg')
+      .post('/api/svg/generate-svg')
       .send({ prompt: 'short', style: VALID_SVG_STYLES[0] })
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/Prompt length must be between/)
@@ -59,7 +86,7 @@ describe('POST /svg/generate-svg', () => {
 
   it('should return 400 if prompt contains forbidden content', async () => {
     const res = await request(app)
-      .post('/svg/generate-svg')
+      .post('/api/svg/generate-svg')
       .send({ prompt: '<script>alert(1)</script>', style: VALID_SVG_STYLES[0] })
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/forbidden content/)
@@ -67,14 +94,14 @@ describe('POST /svg/generate-svg', () => {
 
   it('should return 400 if style is invalid', async () => {
     const res = await request(app)
-      .post('/svg/generate-svg')
+      .post('/api/svg/generate-svg')
       .send({ prompt: 'A valid prompt for SVG', style: 'invalid-style' })
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/Invalid style/)
   })
 
   it('should return 400 if model is invalid', async () => {
-    const res = await request(app).post('/svg/generate-svg').send({
+    const res = await request(app).post('/api/svg/generate-svg').send({
       prompt: 'A valid prompt for SVG',
       style: VALID_SVG_STYLES[0],
       model: 'invalid-model',
@@ -87,7 +114,7 @@ describe('POST /svg/generate-svg', () => {
     ;(generateSvg as jest.Mock).mockResolvedValue('<svg>test</svg>')
     ;(prisma.$transaction as jest.Mock).mockResolvedValue([{}, {}])
 
-    const res = await request(app).post('/svg/generate-svg').send({
+    const res = await request(app).post('/api/svg/generate-svg').send({
       prompt: 'A valid prompt for SVG generation',
       style: VALID_SVG_STYLES[0],
     })
@@ -105,7 +132,7 @@ describe('POST /svg/generate-svg', () => {
   it('should handle internal server error', async () => {
     ;(generateSvg as jest.Mock).mockRejectedValue(new Error('AI error'))
 
-    const res = await request(app).post('/svg/generate-svg').send({
+    const res = await request(app).post('/api/svg/generate-svg').send({
       prompt: 'A valid prompt for SVG generation',
       style: VALID_SVG_STYLES[0],
     })

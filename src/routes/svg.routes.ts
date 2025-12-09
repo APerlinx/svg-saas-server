@@ -104,7 +104,6 @@ router.post(
           data: { coins: { decrement: 1 } },
         }),
       ])
-      console.log('returned svg:', cleanSvg)
       // Respond with generated SVG
       res.status(201).json({
         svgCode: cleanSvg,
