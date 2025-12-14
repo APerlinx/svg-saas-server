@@ -51,12 +51,30 @@ describe('POST /login', () => {
     jest.clearAllMocks()
   })
 
-  it('should return 400 if email or password is missing', async () => {
+  it('should return 400 if email is too long', async () => {
+    const longEmail = 'a'.repeat(250) + '@example.com' // Over 254 chars
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: '', password: '' })
+      .send({ email: longEmail, password: 'password123' })
     expect(res.status).toBe(400)
-    expect(res.body.error).toBe('Missing required fields')
+    expect(res.body.error).toBe('Email is too long (max 254 characters)')
+  })
+
+  it('should return 400 if password is too long', async () => {
+    const longPassword = 'a'.repeat(130) // Over 128 chars
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'test@example.com', password: longPassword })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('Password is too long (max 128 characters)')
+  })
+
+  it('should return 400 if email format is invalid', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'invalid-email', password: 'password123' })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('Invalid email format')
   })
 
   it('should return 401 if user not found', async () => {
