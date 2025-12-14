@@ -19,6 +19,11 @@ import passport from '../config/passport'
 import { requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
 import {
+  validateEmail,
+  validatePassword,
+  validateName,
+} from '../utils/validateInput'
+import {
   ACCESS_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY_DAYS,
 } from '../constants/tokenExpiry'
@@ -45,17 +50,21 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
 
     email = sanitizeInput(email?.toLowerCase() || '')
     name = sanitizeInput(name || '')
-    // Basic validation
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: 'Missing required fields' })
+
+    // Validate inputs
+    const emailError = validateEmail(email)
+    if (emailError) {
+      return res.status(400).json({ error: emailError })
     }
-    if (!email.includes('@')) {
-      return res.status(400).json({ error: 'Invalid email format' })
+
+    const passwordError = validatePassword(password)
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError })
     }
-    if (password.length < 8) {
-      return res
-        .status(400)
-        .json({ error: 'Password must be at least 8 characters' })
+
+    const nameError = validateName(name)
+    if (nameError) {
+      return res.status(400).json({ error: nameError })
     }
     if (agreedToTerms !== true) {
       return res.status(400).json({
@@ -126,8 +135,16 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
     let { email, password, rememberMe } = req.body
     email = sanitizeInput(email?.toLowerCase() || '')
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing required fields' })
+
+    // Validate inputs
+    const emailError = validateEmail(email)
+    if (emailError) {
+      return res.status(400).json({ error: emailError })
+    }
+
+    const passwordError = validatePassword(password)
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError })
     }
 
     const user = await prisma.user.findUnique({
@@ -200,7 +217,7 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
   }
 })
 
-// Refresh access token using refresh token
+// Refresh access token
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
     const oldRefreshToken = req.cookies.refreshToken

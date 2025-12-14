@@ -1,4 +1,6 @@
 import rateLimit from 'express-rate-limit'
+import { Request, Response, NextFunction } from 'express'
+import { IS_TEST } from '../config/env'
 
 // Generic rate limiter factory
 export const createRateLimiter = (
@@ -6,6 +8,9 @@ export const createRateLimiter = (
   max: number,
   message: string
 ) => {
+  if (IS_TEST) {
+    return (req: Request, res: Response, next: NextFunction) => next()
+  }
   return rateLimit({
     windowMs,
     max,

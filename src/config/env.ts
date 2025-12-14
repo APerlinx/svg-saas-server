@@ -9,9 +9,10 @@ export const PORT = process.env.PORT || 4000
 export const NODE_ENV = process.env.NODE_ENV || 'development'
 export const IS_PRODUCTION = NODE_ENV === 'production'
 export const IS_DEVELOPMENT = NODE_ENV === 'development'
+export const IS_TEST = NODE_ENV === 'test'
 console.log(`Running in ${NODE_ENV} mode`)
 // Frontend URL
-export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
+export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 // Authentication
 export const JWT_SECRET = process.env.JWT_SECRET as string

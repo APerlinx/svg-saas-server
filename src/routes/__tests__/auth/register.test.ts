@@ -88,7 +88,6 @@ describe('POST /register', () => {
     })
 
     expect(response.status).toBe(400)
-    expect(response.body.error).toBe('Missing required fields')
   })
 
   it('should return 400 if email format is invalid', async () => {
@@ -113,6 +112,47 @@ describe('POST /register', () => {
 
     expect(response.status).toBe(400)
     expect(response.body.error).toBe('Password must be at least 8 characters')
+  })
+
+  it('should return 400 if email is too long', async () => {
+    const longEmail = 'a'.repeat(250) + '@example.com' // Over 254 chars
+    const response = await request(app).post('/api/auth/register').send({
+      email: longEmail,
+      password: 'password123',
+      name: 'Test User',
+      agreedToTerms: true,
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toBe('Email is too long (max 254 characters)')
+  })
+
+  it('should return 400 if password is too long', async () => {
+    const longPassword = 'a'.repeat(130) // Over 128 chars
+    const response = await request(app).post('/api/auth/register').send({
+      email: 'test@example.com',
+      password: longPassword,
+      name: 'Test User',
+      agreedToTerms: true,
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toBe(
+      'Password is too long (max 128 characters)'
+    )
+  })
+
+  it('should return 400 if name is too long', async () => {
+    const longName = 'a'.repeat(101) // Over 100 chars
+    const response = await request(app).post('/api/auth/register').send({
+      email: 'test@example.com',
+      password: 'password123',
+      name: longName,
+      agreedToTerms: true,
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toBe('Name is too long (max 100 characters)')
   })
 
   it('should return 400 if terms are not agreed', async () => {

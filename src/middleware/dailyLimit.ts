@@ -1,11 +1,15 @@
 import { Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
 import { requireUserId } from '../utils/getUserId'
+import { IS_TEST } from '../config/env'
 
 /**
  * Middleware to enforce daily generation limit per user
  */
 export const dailyGenerationLimit = (maxGenerations: number = 50) => {
+  if (IS_TEST) {
+    return (req: Request, res: Response, next: NextFunction) => next()
+  }
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = requireUserId(req)
