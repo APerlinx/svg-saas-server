@@ -90,7 +90,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
         email,
         passwordHash: hashedPassword,
         name,
-        coins: 10,
+        credits: 10,
         termsAcceptedAt: new Date(),
         termsAcceptedIp: getUserIp(req),
       },
@@ -120,7 +120,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        coins: user.coins,
+        credits: user.credits,
         avatar: user.avatar,
       },
     })
@@ -155,7 +155,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
         name: true,
         avatar: true,
         plan: true,
-        coins: true,
+        credits: true,
         passwordHash: true,
       },
     })
@@ -315,7 +315,7 @@ router.get(
       name: user.name,
       email: user.email,
       avatar: user.avatar,
-      coins: user.coins || 0,
+      credits: user.credits || 0,
     }
 
     res.json(safeUser)

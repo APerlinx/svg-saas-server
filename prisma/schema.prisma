@@ -15,7 +15,7 @@ model User {
   provider     AuthProvider    @default(EMAIL)
   providerId   String?         @unique
   plan         Plan            @default(FREE)
-  coins        Int             @default(3)
+  credits      Int             @default(3)
   avatar                String? 
 
   generations  SvgGeneration[]
@@ -43,7 +43,7 @@ model SvgGeneration {
   svg        String   // the actual SVG code
   style      String?  // 'outline', 'duotone', etc.
   model      String?  @default("gpt-5-mini")
-  coinsUsed  Int?     // optional
+  creditsUsed  Int?     // optional
   privacy    Boolean  @default(false)
   
   createdAt  DateTime @default(now())
@@ -71,8 +71,8 @@ model RefreshToken {
 
 enum Plan {
   FREE
-  STUDENT
-  PRO
+  CUSTOMER
+  UNLIMITED
 }
 
 enum AuthProvider {

@@ -25,9 +25,9 @@ jest.mock('../../../middleware/auth', () => ({
   svgGenerationLimiter: (req: any, res: any, next: any) => next(),
   dailyGenerationLimit: () => (req: any, res: any, next: any) => next(),
 }))
-jest.mock('../../../middleware/checkCoins', () => ({
+jest.mock('../../../middleware/checkCredits', () => ({
   __esModule: true,
-  checkCoinsMiddleware: (req: any, res: any, next: any) => next(),
+  checkCreditsMiddleware: (req: any, res: any, next: any) => next(),
 }))
 jest.mock('../../../utils/getUserId', () => ({
   __esModule: true,
@@ -49,7 +49,7 @@ import prisma from '../../../lib/prisma'
 import { generateSvg } from '../../../services/aiService'
 import { VALID_SVG_STYLES } from '../../../constants/svgStyles'
 import { DEFAULT_MODEL } from '../../../constants/models'
-import { checkCoinsMiddleware } from '../../../middleware/checkCoins'
+import { checkCreditsMiddleware } from '../../../middleware/checkCredits'
 import { authMiddleware } from '../../../middleware/auth'
 
 let app: express.Express

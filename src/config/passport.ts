@@ -76,7 +76,7 @@ passport.use(
                 provider: 'GOOGLE',
                 providerId: googleId,
                 passwordHash: null,
-                coins: 10,
+                credits: 10,
                 termsAcceptedAt: new Date(),
               },
             })
@@ -169,7 +169,7 @@ passport.use(
                 provider: 'GITHUB',
                 providerId: githubId,
                 passwordHash: null,
-                coins: 10,
+                credits: 10,
                 termsAcceptedAt: new Date(),
               },
             })

@@ -50,7 +50,7 @@ model User {
   providerId   String?         @unique          // OAuth provider ID
   avatar       String?         // Profile picture URL
   plan         Plan            @default(FREE)
-  coins        Int             @default(10)
+  credits      Int             @default(10)
 
   refreshTokens RefreshToken[] // All active sessions
 
@@ -113,7 +113,7 @@ model RefreshToken {
     "id": "...",
     "email": "user@example.com",
     "name": "John Doe",
-    "coins": 10,
+    "credits": 10,
     "avatar": null
   }
 }
@@ -193,7 +193,7 @@ model RefreshToken {
   "name": "John Doe",
   "email": "user@example.com",
   "avatar": "https://...",
-  "coins": 10
+  "credits": 10
 }
 ```
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth'
-import { checkCoinsMiddleware } from '../middleware/checkCoins'
+import { checkCreditsMiddleware } from '../middleware/checkCredits'
 import prisma from '../lib/prisma'
 import { generateSvg } from '../services/aiService'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
@@ -24,7 +24,7 @@ router.post(
   '/generate-svg',
   authMiddleware,
   svgGenerationLimiter,
-  checkCoinsMiddleware,
+  checkCreditsMiddleware,
   dailyGenerationLimit(50),
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
@@ -85,8 +85,8 @@ router.post(
       const rawSvg = await generateSvg(sanitizedPrompt, style, selectedModel)
       const cleanSvg = sanitizeSvg(rawSvg)
 
-      const coinsUsed = 1
-      // Store SVG generation and decrement user coins in a transaction
+      const creditsUsed = 1
+      // Store SVG generation and decrement user credits in a transaction
       await prisma.$transaction([
         prisma.svgGeneration.create({
           data: {
@@ -94,14 +94,14 @@ router.post(
             prompt,
             svg: cleanSvg,
             style,
-            coinsUsed,
+            creditsUsed,
             model: selectedModel,
             privacy: isPrivate,
           },
         }),
         prisma.user.update({
           where: { id: userId },
-          data: { coins: { decrement: 1 } },
+          data: { credits: { decrement: 1 } },
         }),
       ])
       // Respond with generated SVG
@@ -138,7 +138,7 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
         style: true,
         model: true,
         privacy: true,
-        coinsUsed: true,
+        creditsUsed: true,
         createdAt: true,
       },
     })
@@ -185,7 +185,7 @@ router.get('/public', async (req: Request, res: Response) => {
         style: true,
         model: true,
         privacy: true,
-        coinsUsed: true,
+        creditsUsed: true,
         createdAt: true,
       },
     })

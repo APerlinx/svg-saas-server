@@ -33,7 +33,7 @@ describe('GET /current-user', () => {
     name: 'Test User',
     email: 'test@example.com',
     avatar: 'avatar.png',
-    coins: 42,
+    credits: 42,
   }
 
   beforeEach(() => {
@@ -65,18 +65,18 @@ describe('GET /current-user', () => {
       name: mockUser.name,
       email: mockUser.email,
       avatar: mockUser.avatar,
-      coins: mockUser.coins,
+      credits: mockUser.credits,
     })
   })
 
-  it('should default coins to 0 if undefined', async () => {
+  it('should default credits to 0 if undefined', async () => {
     ;(requireUserId as jest.Mock).mockReturnValue('user123')
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
       ...mockUser,
-      coins: undefined,
+      credits: undefined,
     })
     const res = await request(app).get('/api/auth/current-user')
     expect(res.status).toBe(200)
-    expect(res.body.coins).toBe(0)
+    expect(res.body.credits).toBe(0)
   })
 })

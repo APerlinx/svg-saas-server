@@ -93,7 +93,7 @@ describe('POST /login', () => {
       name: 'Test',
       avatar: null,
       plan: null,
-      coins: 10,
+      credits: 10,
       passwordHash: 'hashed',
     })
     ;(bcrypt.compare as jest.Mock).mockResolvedValue(false)
@@ -111,7 +111,7 @@ describe('POST /login', () => {
       name: 'Test',
       avatar: null,
       plan: null,
-      coins: 10,
+      credits: 10,
       passwordHash: 'hashed',
     }
     prisma.user.findUnique.mockResolvedValue(user)
@@ -131,7 +131,7 @@ describe('POST /login', () => {
       name: user.name,
       avatar: user.avatar,
       plan: user.plan,
-      coins: user.coins,
+      credits: user.credits,
     })
     expect(
       require('../../../utils/setAuthCookie').setAccessTokenCookie
@@ -148,7 +148,7 @@ describe('POST /login', () => {
       name: 'Remember',
       avatar: null,
       plan: null,
-      coins: 5,
+      credits: 5,
       passwordHash: 'hashed',
     }
     prisma.user.findUnique.mockResolvedValue(user)

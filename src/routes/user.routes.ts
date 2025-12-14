@@ -34,7 +34,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         email: true,
         name: true,
         plan: true,
-        coins: true,
+        credits: true,
         createdAt: true,
         updatedAt: true,
         generations: true,

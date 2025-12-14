@@ -2,8 +2,8 @@ import { Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
 import { requireUserId } from '../utils/getUserId'
 
-// Middleware to check if user has enough coins
-export const checkCoinsMiddleware = async (
+// Middleware to check if user has enough credits
+export const checkCreditsMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -15,10 +15,10 @@ export const checkCoinsMiddleware = async (
     }
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, coins: true, plan: true },
+      select: { id: true, credits: true, plan: true },
     })
-    if (!user || user.coins <= 0) {
-      return res.status(403).json({ error: 'Insufficient coins' })
+    if (!user || user.credits <= 0) {
+      return res.status(403).json({ error: 'Insufficient credits' })
     }
 
     // Attach user info to request for downstream handlers
@@ -28,7 +28,7 @@ export const checkCoinsMiddleware = async (
 
     next()
   } catch (error) {
-    console.error('Coins check error:', error)
+    console.error('Credits check error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 }

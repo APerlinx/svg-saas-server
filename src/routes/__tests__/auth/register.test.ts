@@ -48,7 +48,7 @@ describe('POST /register', () => {
       id: '123',
       email: 'test@example.com',
       name: 'Test User',
-      coins: 10,
+      credits: 10,
       avatar: null,
       passwordHash: 'hashed',
     }
@@ -72,7 +72,7 @@ describe('POST /register', () => {
       id: '123',
       email: 'test@example.com',
       name: 'Test User',
-      coins: 10,
+      credits: 10,
       avatar: null,
     })
     expect(sendWelcomeEmail).toHaveBeenCalledWith(
@@ -208,7 +208,7 @@ describe('POST /register', () => {
       id: '123',
       email: 'test@example.com',
       name: 'Test User',
-      coins: 10,
+      credits: 10,
     })
     ;(jwt.sign as jest.Mock).mockReturnValue('token')
     ;(createRefreshToken as jest.Mock).mockResolvedValue('refreshToken')
