@@ -328,9 +328,13 @@ router.post(
   forgotPasswordLimiter,
   async (req: Request, res: Response) => {
     try {
-      const { email } = req.body
-      if (!email) {
-        return res.status(400).json({ error: 'Email is required' })
+      let { email } = req.body
+      email = sanitizeInput(email?.toLowerCase() || '')
+
+      // Validate email
+      const emailError = validateEmail(email)
+      if (emailError) {
+        return res.status(400).json({ error: emailError })
       }
       const user = await prisma.user.findUnique({ where: { email } })
       if (!user) {
@@ -372,10 +376,11 @@ router.post(
       if (!resetToken || !newPassword) {
         return res.status(400).json({ error: 'Missing required fields' })
       }
-      if (newPassword.length < 8) {
-        return res
-          .status(400)
-          .json({ error: 'Password must be at least 8 characters' })
+
+      // Validate password
+      const passwordError = validatePassword(newPassword)
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError })
       }
       const hashedToken = hashResetToken(resetToken)
       const user = await prisma.user.findFirst({
