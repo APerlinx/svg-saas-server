@@ -37,8 +37,7 @@ import {
   createRefreshToken,
   revokeAllUserTokens,
   revokeRefreshToken,
-  rotateRefreshToken,
-  verifyRefreshToken,
+  verifyAndRotateRefreshToken,
 } from '../utils/refreshToken'
 
 const router = Router()
@@ -101,11 +100,11 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     })
 
     // Generate refresh token (long-lived, stored in DB)
-    const refreshToken = await createRefreshToken(
+    const { plainToken } = await createRefreshToken(
       user.id,
       REFRESH_TOKEN_EXPIRY_DAYS,
       getUserIp(req),
-      req.headers['user-agent']
+      req.headers['user-agent'] as string | undefined
     )
 
     // Send welcome email
@@ -113,7 +112,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
 
     // Set both cookies
     setAccessTokenCookie(res, accessToken)
-    setRefreshTokenCookie(res, refreshToken, false)
+    setRefreshTokenCookie(res, plainToken, false)
 
     res.status(201).json({
       user: {
@@ -176,16 +175,16 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
 
     // Generate refresh token
     const expiryDays = rememberMe ? 30 : REFRESH_TOKEN_EXPIRY_DAYS
-    const refreshToken = await createRefreshToken(
+    const { plainToken } = await createRefreshToken(
       user.id,
       expiryDays,
       getUserIp(req),
-      req.headers['user-agent']
+      req.headers['user-agent'] as string | undefined
     )
 
     // Set both cookies
     setAccessTokenCookie(res, accessToken)
-    setRefreshTokenCookie(res, refreshToken, rememberMe)
+    setRefreshTokenCookie(res, plainToken, rememberMe)
 
     const { passwordHash, ...safeUser } = user
     res.json({ user: safeUser })
@@ -219,45 +218,49 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
 
 // Refresh access token
 router.post('/refresh', async (req: Request, res: Response) => {
+  console.log('🔄 ===== REFRESH TOKEN REQUEST STARTED =====')
+  console.log('🔄 Request cookies:', {
+    hasRefreshToken: !!req.cookies.refreshToken,
+    hasAccessToken: !!req.cookies.token,
+    refreshTokenPreview: req.cookies.refreshToken
+      ? `${req.cookies.refreshToken.substring(0, 20)}...`
+      : 'NONE',
+    allCookies: Object.keys(req.cookies),
+  })
   try {
     const oldRefreshToken = req.cookies.refreshToken
-    if (!oldRefreshToken) {
+    if (!oldRefreshToken)
       return res.status(401).json({ error: 'No refresh token provided' })
-    }
 
-    // Verify refresh token and get userId
-    const userId = await verifyRefreshToken(oldRefreshToken)
+    const rotated = await verifyAndRotateRefreshToken(
+      oldRefreshToken,
+      REFRESH_TOKEN_EXPIRY_DAYS,
+      getUserIp(req),
+      req.headers['user-agent'] as string | undefined
+    )
 
-    if (!userId) {
-      clearAuthCookie(res)
+    if (!rotated.ok) {
+      if (rotated.reason === 'REUSED') {
+        clearAuthCookie(res)
+        // log security incident
+      }
       return res.status(401).json({ error: 'Invalid or expired refresh token' })
     }
 
+    const { userId, newPlainToken } = rotated
     // Generate new access token
     const newAccessToken = jwt.sign({ userId }, JWT_SECRET, {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     })
 
-    // ROTATION: Create new refresh token and delete old one
-    const newRefreshToken = await rotateRefreshToken(
-      oldRefreshToken,
-      userId,
-      REFRESH_TOKEN_EXPIRY_DAYS,
-      getUserIp(req),
-      req.headers['user-agent']
-    )
-
-    if (!newRefreshToken) {
-      clearAuthCookie(res)
-      return res.status(401).json({ error: 'Token rotation failed' })
-    }
-
     // Set both new tokens
     setAccessTokenCookie(res, newAccessToken)
-    setRefreshTokenCookie(res, newRefreshToken, false)
+    setRefreshTokenCookie(res, newPlainToken, false)
+    console.log('✅ ===== REFRESH TOKEN REQUEST COMPLETED SUCCESSFULLY =====')
 
     res.json({ message: 'Token refreshed successfully' })
   } catch (error) {
+    console.error('❌ ===== REFRESH TOKEN ERROR =====')
     console.error('Token refresh error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -457,16 +460,16 @@ router.get(
       })
 
       // Generate refresh token
-      const refreshToken = await createRefreshToken(
+      const { plainToken } = await createRefreshToken(
         user.id,
         REFRESH_TOKEN_EXPIRY_DAYS,
         getUserIp(req),
-        req.headers['user-agent']
+        req.headers['user-agent'] as string | undefined
       )
 
       // Set both cookies
       setAccessTokenCookie(res, accessToken)
-      setRefreshTokenCookie(res, refreshToken, false)
+      setRefreshTokenCookie(res, plainToken, false)
 
       // Extract redirectUrl from state parameter
       const state = req.query.state as string
@@ -535,16 +538,16 @@ router.get(
       })
 
       // Generate refresh token
-      const refreshToken = await createRefreshToken(
+      const { plainToken } = await createRefreshToken(
         user.id,
         REFRESH_TOKEN_EXPIRY_DAYS,
         getUserIp(req),
-        req.headers['user-agent']
+        req.headers['user-agent'] as string | undefined
       )
 
       // Set both cookies
       setAccessTokenCookie(res, accessToken)
-      setRefreshTokenCookie(res, refreshToken, false)
+      setRefreshTokenCookie(res, plainToken, false)
 
       // Extract redirectUrl from state parameter
       const state = req.query.state as string

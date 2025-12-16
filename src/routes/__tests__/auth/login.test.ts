@@ -21,7 +21,10 @@ jest.mock('../../../utils/setAuthCookie', () => ({
   setRefreshTokenCookie: jest.fn(),
 }))
 jest.mock('../../../utils/refreshToken', () => ({
-  createRefreshToken: jest.fn(() => 'mockRefreshToken'),
+  createRefreshToken: jest.fn(() => ({
+    plainToken: 'mockRefreshToken',
+    record: { id: 'mock-token-id' },
+  })),
 }))
 jest.mock('../../../utils/sanitizeInput', () => ({
   sanitizeInput: (input: string) => input,

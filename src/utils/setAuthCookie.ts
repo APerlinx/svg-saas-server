@@ -36,7 +36,7 @@ export const setRefreshTokenCookie = (
 }
 
 /**
- * Legacy function - now sets both tokens
+ * Legacy function - sets both tokens
  * Keep for backward compatibility, but use specific functions in new code
  */
 export const setAuthCookie = (

@@ -53,21 +53,37 @@ model SvgGeneration {
 
 model RefreshToken {
   id        String   @id @default(cuid())
-  token     String   @unique  // The actual refresh token (hashed)
+
+  // hashed token secret (never store plain token)
+  token     String   @unique
+
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  expiresAt DateTime
+
+  // Group tokens that belong to the same login/session chain.
+  // When you detect reuse, revoke the entire family.
+  familyId  String   @default(cuid())
+
+  // Rotation / revocation tracking
   createdAt DateTime @default(now())
-  
-  // Optional: Track token usage for security
+  expiresAt DateTime
   lastUsedAt DateTime?
-  ipAddress  String?
-  userAgent  String?
+
+  revokedAt DateTime?
+  
+  replacedByTokenId String? @unique
+  replacedByToken   RefreshToken? @relation("TokenReplacement", fields: [replacedByTokenId], references: [id])
+  replacesToken     RefreshToken? @relation("TokenReplacement")
+
+  // Optional metadata
+  ipAddress String?
+  userAgent String?
 
   @@index([userId])
-  @@index([token])
+  @@index([familyId])
+  @@index([revokedAt])
 }
+
 
 enum Plan {
   FREE

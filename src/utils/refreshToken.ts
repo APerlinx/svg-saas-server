@@ -1,137 +1,116 @@
 import crypto from 'crypto'
 import prisma from '../lib/prisma'
+import type { Prisma, RefreshToken } from '@prisma/client'
 
-/**
- * Generate a cryptographically secure refresh token
- * Returns the plain token (to send to user) and hashed version (to store in DB)
- */
+type RotateResult =
+  | { ok: true; userId: string; newPlainToken: string }
+  | { ok: false; reason: 'NOT_FOUND' | 'EXPIRED' | 'REUSED' }
+
+const sha256 = (value: string) =>
+  crypto.createHash('sha256').update(value).digest('hex')
+
 export const generateRefreshToken = () => {
-  // Generate 32 random bytes, convert to hex string (64 characters)
+  // Prefer base64url to keep cookie smaller than hex (optional but better)
+  // Node 20+: crypto.randomBytes(32).toString('base64url')
   const plainToken = crypto.randomBytes(32).toString('hex')
-
-  // Hash it before storing in database (same principle as passwords)
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(plainToken)
-    .digest('hex')
-
-  return { plainToken, hashedToken }
+  return { plainToken, hashedToken: sha256(plainToken) }
 }
 
 export const createRefreshToken = async (
   userId: string,
   expiresInDays: number = 30,
   ipAddress?: string,
-  userAgent?: string
+  userAgent?: string,
+  familyId?: string,
+  tx?: Prisma.TransactionClient
 ) => {
+  const db = tx ?? prisma
   const { plainToken, hashedToken } = generateRefreshToken()
 
-  // Calculate expiration date
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + expiresInDays)
 
-  // Store in database
-  await prisma.refreshToken.create({
+  const created = await db.refreshToken.create({
     data: {
       token: hashedToken,
       userId,
       expiresAt,
       ipAddress,
       userAgent,
+      familyId: familyId ?? undefined,
     },
   })
 
-  return plainToken
+  return { plainToken, record: created }
 }
 
-export const verifyRefreshToken = async (plainToken: string) => {
-  // Hash the incoming token to compare with DB
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(plainToken)
-    .digest('hex')
-
-  // Find token in database
-  const tokenRecord = await prisma.refreshToken.findUnique({
-    where: { token: hashedToken },
-  })
-
-  // Check if exists and not expired
-  if (!tokenRecord || tokenRecord.expiresAt < new Date()) {
-    return null
-  }
-
-  // Update last used timestamp
-  await prisma.refreshToken.update({
-    where: { id: tokenRecord.id },
-    data: { lastUsedAt: new Date() },
-  })
-
-  return tokenRecord.userId
-}
-
-/**
- * Delete a specific refresh token (single device logout)
- */
-export const revokeRefreshToken = async (plainToken: string) => {
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(plainToken)
-    .digest('hex')
-
-  try {
-    await prisma.refreshToken.delete({
-      where: { token: hashedToken },
-    })
-  } catch (error) {
-    console.log('Refresh token not found (may already be revoked)')
-  }
-}
-
-/**
- * Delete all refresh tokens for a user (logout from all devices)
- */
-export const revokeAllUserTokens = async (userId: string) => {
-  await prisma.refreshToken.deleteMany({
-    where: { userId },
-  })
-}
-
-// Add this new function
-export const rotateRefreshToken = async (
+export const verifyAndRotateRefreshToken = async (
   oldPlainToken: string,
-  userId: string,
   expiresInDays: number = 7,
   ipAddress?: string,
   userAgent?: string
-) => {
-  // Hash the old token
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(oldPlainToken)
-    .digest('hex')
+): Promise<RotateResult> => {
+  const hashedOld = sha256(oldPlainToken)
+  const now = new Date()
 
-  // Verify it exists and get the record
-  const tokenRecord = await prisma.refreshToken.findUnique({
-    where: { token: hashedToken },
+  return prisma.$transaction(async (tx) => {
+    const tokenRecord = await tx.refreshToken.findUnique({
+      where: { token: hashedOld },
+    })
+
+    if (!tokenRecord) return { ok: false, reason: 'NOT_FOUND' }
+    if (tokenRecord.expiresAt < now) return { ok: false, reason: 'EXPIRED' }
+
+    // Reuse detection: token already revoked but someone is presenting it again
+    if (tokenRecord.revokedAt) {
+      // Revoke the whole family (best practice)
+      await tx.refreshToken.updateMany({
+        where: {
+          userId: tokenRecord.userId,
+          familyId: tokenRecord.familyId,
+          revokedAt: null,
+        },
+        data: { revokedAt: now },
+      })
+      return { ok: false, reason: 'REUSED' }
+    }
+
+    // Create replacement token in same family
+    const { plainToken: newPlainToken, record: newRecord } =
+      await createRefreshToken(
+        tokenRecord.userId,
+        expiresInDays,
+        ipAddress,
+        userAgent,
+        tokenRecord.familyId,
+        tx
+      )
+
+    // Revoke old token and link it to the replacement
+    await tx.refreshToken.update({
+      where: { id: tokenRecord.id },
+      data: {
+        revokedAt: now,
+        replacedByTokenId: newRecord.id,
+        lastUsedAt: now,
+      },
+    })
+
+    return { ok: true, userId: tokenRecord.userId, newPlainToken }
   })
+}
 
-  if (!tokenRecord || tokenRecord.expiresAt < new Date()) {
-    return null
-  }
-
-  // Delete the old token
-  await prisma.refreshToken.deleteMany({
-    where: { id: tokenRecord.id },
+export const revokeRefreshToken = async (plainToken: string) => {
+  const hashed = sha256(plainToken)
+  await prisma.refreshToken.updateMany({
+    where: { token: hashed, revokedAt: null },
+    data: { revokedAt: new Date() },
   })
+}
 
-  // Create a new token with same expiry duration
-  const newPlainToken = await createRefreshToken(
-    userId,
-    expiresInDays,
-    ipAddress,
-    userAgent
-  )
-
-  return newPlainToken
+export const revokeAllUserTokens = async (userId: string) => {
+  await prisma.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
 }

@@ -27,12 +27,14 @@ This application uses a **JWT-based authentication system** with **refresh token
 
 1. **HttpOnly Cookies** - XSS protection (JavaScript cannot access)
 2. **CSRF Protection** - Double Submit Cookie pattern
-3. **Token Rotation** - Refresh tokens rotated on each use (detects token theft)
-4. **Password Hashing** - bcrypt with salt (10 rounds)
-5. **Rate Limiting** - 5 login attempts per 15 minutes
-6. **OAuth Security** - State parameter with timestamp validation
-7. **IP & User-Agent Tracking** - Detect suspicious activity
-8. **Token Cleanup** - Daily cron job removes expired tokens
+3. **Token Rotation** - Refresh tokens rotated on each use with family tracking
+4. **Reuse Detection** - Detects stolen tokens, revokes entire token family
+5. **Password Hashing** - bcrypt with salt (10 rounds)
+6. **Rate Limiting** - 5 login attempts per 15 minutes
+7. **OAuth Security** - State parameter with timestamp validation
+8. **IP & User-Agent Tracking** - Detect suspicious activity
+9. **Token Cleanup** - Daily cron job removes expired tokens
+10. **Atomic Operations** - Database transactions prevent race conditions
 
 ---
 
@@ -50,7 +52,7 @@ model User {
   providerId   String?         @unique          // OAuth provider ID
   avatar       String?         // Profile picture URL
   plan         Plan            @default(FREE)
-  credits      Int             @default(10)
+  credits      Int             @default(3)
 
   refreshTokens RefreshToken[] // All active sessions
 
@@ -74,13 +76,26 @@ model RefreshToken {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Token family for rotation tracking
+  familyId  String   @default(cuid())
+
   expiresAt DateTime
   createdAt DateTime @default(now())
 
   // Security tracking
   lastUsedAt DateTime?
+  revokedAt  DateTime?  // When token was rotated or revoked
   ipAddress  String?
-  userAgent  String?  // Browser/device info
+  userAgent  String?    // Browser/device info
+
+  // Token rotation chain
+  replacedByTokenId String? @unique
+  replacedByToken   RefreshToken? @relation("TokenReplacement", fields: [replacedByTokenId], references: [id])
+  replacesToken     RefreshToken? @relation("TokenReplacement")
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([revokedAt])
 }
 ```
 
@@ -113,7 +128,7 @@ model RefreshToken {
     "id": "...",
     "email": "user@example.com",
     "name": "John Doe",
-    "credits": 10,
+    "credits": 3,
     "avatar": null
   }
 }
@@ -162,14 +177,18 @@ model RefreshToken {
 
 **Auth Required:** No (uses refresh token cookie)
 
-**Flow:**
+**Flow (Atomic Transaction):**
 
 1. Reads `refreshToken` from cookie
-2. Verifies token exists in database and not expired
-3. **Deletes old refresh token** (rotation)
-4. **Creates new refresh token**
-5. Generates new access token
-6. Sets both new tokens as cookies
+2. Hashes token and looks up in database
+3. **Validates token:**
+   - Token must exist (NOT_FOUND)
+   - Token must not be expired (EXPIRED)
+   - Token must not be revoked (REUSED - security breach!)
+4. **Reuse Detection:** If token was already used (revoked), revokes entire token family
+5. **Rotation:** Creates new token in same family, revokes old token, links them
+6. Generates new access token
+7. Sets both new tokens as cookies
 
 **Response:**
 
@@ -178,6 +197,11 @@ model RefreshToken {
   "message": "Token refreshed successfully"
 }
 ```
+
+**Error Cases:**
+
+- `401` - Token not found, expired, or reused (clears cookies if reused)
+- `500` - Internal server error
 
 ---
 
@@ -193,7 +217,7 @@ model RefreshToken {
   "name": "John Doe",
   "email": "user@example.com",
   "avatar": "https://...",
-  "credits": 10
+  "credits": 3
 }
 ```
 
@@ -339,22 +363,40 @@ Same flow as Google callback
 
 ---
 
-### 2. Token Rotation
+### 2. Token Rotation & Reuse Detection
 
-**Why:** Detect stolen refresh tokens
+**Why:** Detect and respond to stolen refresh tokens
 
 **How it works:**
 
-1. User requests new access token via `/refresh`
-2. Server **deletes** old refresh token from database
-3. Server **creates** new refresh token
-4. User gets new access + new refresh token
+1. Each refresh token belongs to a **token family** (same login session)
+2. User requests new access token via `/refresh`
+3. Server verifies token in **atomic database transaction:**
+   - Checks if token exists and not expired
+   - **Checks if token already revoked** (revokedAt field)
+4. If token already used (revoked):
+   - **SECURITY BREACH DETECTED!**
+   - Revokes **entire token family** (all tokens from that login)
+   - Forces re-login on all devices from that session
+5. If token valid:
+   - Creates new token in **same family**
+   - Revokes old token (sets `revokedAt`, links to new token)
+   - Returns new access + refresh tokens
 
-**Security benefit:**
+**Security benefits:**
 
-- If attacker steals token and uses it, real user's next refresh fails
-- Real user's token was already deleted
-- System knows something is wrong
+- **Reuse Detection:** If attacker uses stolen token, system immediately detects it when real user tries to refresh
+- **Family Revocation:** All tokens from compromised session are invalidated
+- **Audit Trail:** `replacedByTokenId` creates chain showing token rotation history
+- **Race Condition Prevention:** Database transaction ensures atomic operations
+
+**Token Families Explained:**
+
+All tokens created from the same login share a `familyId`. This allows the system to:
+
+- Track all tokens from a single authentication session
+- Revoke all related tokens if any one is compromised
+- Maintain separate sessions across multiple devices
 
 ---
 
@@ -379,8 +421,9 @@ Same flow as Google callback
 
 1. Deletes expired password reset tokens
 2. Deletes expired refresh tokens
+3. Deletes old revoked refresh tokens (keep for audit trail, but cleanup after time)
 
-**Why:** Prevent database bloat, maintain performance
+**Why:** Prevent database bloat, maintain performance, cleanup rotation history
 
 ---
 
@@ -393,38 +436,41 @@ Same flow as Google callback
 useEffect(() => {
   const initAuth = async () => {
     setIsLoading(true)
-
-    // Try to refresh token (in case access token expired)
-    const refreshed = await refreshAccessToken()
-
-    if (refreshed) {
-      await checkAuth() // Get user data
-    } else {
-      setUser(null) // Not logged in
+    try {
+      const currentUser = await authService.ensureSession()
+      setUser(currentUser)
+    } catch (error) {
+      console.error('Unexpected error in initAuth:', error)
+      setUser(null)
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
-  initAuth()
+  void initAuth()
 }, [])
 ```
 
-### Automatic Retry on 401
+### Refresh single-flight lock (prevents parallel refresh storms)
 
 ```typescript
-// In fetchWithCsrf utility
-if (response.status === 401) {
-  // Try to refresh token
-  const refreshed = await refreshAccessToken()
+let refreshInFlight: Promise<boolean> | null = null
 
-  if (refreshed) {
-    // Retry original request with new access token
-    response = await fetch(url, options)
-  } else {
-    // Refresh failed, redirect to login
-    window.location.href = '/signin'
-  }
+export async function refreshAccessToken(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = (async () => {
+    try {
+      await api.post('/auth/refresh')
+      return true
+    } catch {
+      return false
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+
+  return refreshInFlight
 }
 ```
 
@@ -446,7 +492,7 @@ if (response.status === 401) {
 - [x] OAuth state parameter expires in 10 minutes
 - [x] JWT_SECRET is 32+ characters (check .env)
 - [x] All OAuth credentials set (Google, GitHub)
-- [ ] HTTPS enabled (required for secure cookies)
+- [x] HTTPS enabled (required for secure cookies)
 - [ ] CORS configured for production domain
 
 ### Environment Variables Required
@@ -479,30 +525,6 @@ NODE_ENV=production
 
 ---
 
-## Common Issues & Solutions
-
-### Issue: Refresh token deleted error on logout
-
-**Cause:** Token already deleted or doesn't exist
-**Solution:** Wrapped in try-catch, gracefully handles missing tokens
-
-### Issue: CSRF token missing
-
-**Cause:** Cookie not set or frontend not reading it
-**Solution:** Ensure `generateCsrfToken` middleware runs before routes
-
-### Issue: OAuth state expired
-
-**Cause:** User took >10 minutes to authorize
-**Solution:** Redirects to home page, user can try again
-
-### Issue: Token rotation fails
-
-**Cause:** Old token already used/deleted
-**Solution:** Clears all cookies, forces re-login
-
----
-
 ## Future Enhancements
 
 ### Planned Features
@@ -516,10 +538,12 @@ NODE_ENV=production
 
 ### Optional Improvements
 
-- [ ] Token reuse detection (detect stolen tokens)
+- [x] Token reuse detection (detect stolen tokens) ✅
+- [x] Token family tracking for session management ✅
 - [ ] Geolocation tracking for sessions
 - [ ] Login history log
 - [ ] Security audit log
+- [ ] Automatic suspicious activity alerts
 
 ---
 
@@ -561,4 +585,4 @@ For questions or issues with the authentication system:
 3. Test with Postman collection
 4. Check server logs for detailed error messages
 
-**Last Updated:** December 8, 2025
+**Last Updated:** December 16, 2025

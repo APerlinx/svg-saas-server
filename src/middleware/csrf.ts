@@ -19,8 +19,6 @@ export const generateCsrfToken = (
   // Generate random 32-byte token
   const csrfToken = crypto.randomBytes(32).toString('hex')
 
-  console.log('Generated CSRF token for new session')
-
   // Set cookie
   res.cookie('csrf-token', csrfToken, {
     httpOnly: false, // MUST be false - JS needs to read it
@@ -49,7 +47,6 @@ export const validateCsrfToken = (
 
   // Skip validation for webhook endpoints (they use signature verification)
   if (req.path.includes('/webhook')) {
-    console.log('⏭️  Skipping CSRF for webhook:', req.path)
     return next()
   }
 
@@ -75,6 +72,5 @@ export const validateCsrfToken = (
     })
   }
 
-  console.log('✅ CSRF token validated for:', req.method, req.path)
   next()
 }
