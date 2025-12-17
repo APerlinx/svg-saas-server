@@ -38,7 +38,10 @@ app.use(express.json())
 app.use(cookieParser())
 
 // Add CSRF token generation middleware
-app.use(generateCsrfToken)
+app.use((req, res, next) => {
+  if (req.path === '/health') return next()
+  return generateCsrfToken(req, res, next)
+})
 
 // Initialize Passport middleware
 app.use(passport.initialize())
@@ -48,7 +51,7 @@ app.use(pinoHttp({ logger }))
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.send('OK')
+  res.status(200).json({ ok: true })
 })
 app.use('/api', apiLimiter)
 //Auth
