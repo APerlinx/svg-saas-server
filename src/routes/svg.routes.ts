@@ -10,6 +10,7 @@ import { sanitizeInput } from '../utils/sanitizeInput'
 import { sanitizeSvg } from '../utils/sanitizeSvg'
 import { dailyGenerationLimit } from '../middleware/dailyLimit'
 import { svgGenerationLimiter } from '../middleware/rateLimiter'
+import { logger } from '../lib/logger'
 
 const router = Router()
 
@@ -109,7 +110,7 @@ router.post(
         svgCode: cleanSvg,
       })
     } catch (error) {
-      console.error('SVG Generation error:', error)
+      logger.error({ error, userId: getUserId(req) }, 'SVG Generation error')
       res.status(500).json({ error: 'Internal server error' })
     }
   }
@@ -157,7 +158,10 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
       },
     })
   } catch (error) {
-    console.error('Error fetching SVG history:', error)
+    logger.error(
+      { error, userId: getUserId(req) },
+      'Error fetching SVG history'
+    )
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -198,7 +202,7 @@ router.get('/public', async (req: Request, res: Response) => {
       pagination: { currentPage: page, totalPages, totalCount, limit, hasMore },
     })
   } catch (error) {
-    console.error('Error fetching public SVGs:', error)
+    logger.error({ error }, 'Error fetching public SVGs')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -235,7 +239,7 @@ router.get(
 
       res.json({ svgGeneration })
     } catch (error) {
-      console.error('Error fetching SVG by ID:', error)
+      logger.error({ error, svgId: req.params.id }, 'Error fetching SVG by ID')
       res.status(500).json({ error: 'Internal server error' })
     }
   }

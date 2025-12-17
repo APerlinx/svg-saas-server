@@ -23,7 +23,7 @@ export const generateCsrfToken = (
   res.cookie('csrf-token', csrfToken, {
     httpOnly: false, // MUST be false - JS needs to read it
     secure: IS_PRODUCTION, // HTTPS only in production
-    sameSite: 'strict', // Don't send to other sites
+    sameSite: IS_PRODUCTION ? 'none' : 'strict', // Don't send to other sites
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     path: '/', // Available on all routes
   })

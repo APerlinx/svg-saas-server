@@ -63,7 +63,7 @@ export const verifyAndRotateRefreshToken = async (
 
     // Reuse detection: token already revoked but someone is presenting it again
     if (tokenRecord.revokedAt) {
-      // Revoke the whole family (best practice)
+      // Revoke the whole family
       await tx.refreshToken.updateMany({
         where: {
           userId: tokenRecord.userId,

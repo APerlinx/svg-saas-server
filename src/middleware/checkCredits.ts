@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
-import { requireUserId } from '../utils/getUserId'
+import { getUserId, requireUserId } from '../utils/getUserId'
+import { logger } from '../lib/logger'
 
 // Middleware to check if user has enough credits
 export const checkCreditsMiddleware = async (
@@ -28,7 +29,7 @@ export const checkCreditsMiddleware = async (
 
     next()
   } catch (error) {
-    console.error('Credits check error:', error)
+    logger.error({ error, userId: getUserId(req) }, 'Credits check error')
     res.status(500).json({ error: 'Internal server error' })
   }
 }

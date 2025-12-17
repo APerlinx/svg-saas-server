@@ -8,15 +8,29 @@ import { FRONTEND_URL } from './config/env'
 import cookieParser from 'cookie-parser'
 import { generateCsrfToken, validateCsrfToken } from './middleware/csrf'
 import { apiLimiter } from './middleware/rateLimiter'
+import pinoHttp from 'pino-http'
+import { logger } from './lib/logger'
 
 const app = express()
 
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.FRONTEND_PREVIEW_REGEX,
+].filter(Boolean)
+
 app.use(
   cors({
-    origin: FRONTEND_URL,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true)
+      if (origin === process.env.FRONTEND_URL) return cb(null, true)
+
+      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true)
+
+      return cb(new Error('Not allowed by CORS'))
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
   })
 )
 
@@ -28,6 +42,9 @@ app.use(generateCsrfToken)
 
 // Initialize Passport middleware
 app.use(passport.initialize())
+
+// Attach pino HTTP logger
+app.use(pinoHttp({ logger }))
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

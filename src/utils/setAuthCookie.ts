@@ -8,7 +8,7 @@ export const setAccessTokenCookie = (res: Response, token: string) => {
   res.cookie('token', token, {
     httpOnly: true, // JavaScript can't access it (XSS protection)
     secure: IS_PRODUCTION, // HTTPS only in production
-    sameSite: 'lax',
+    sameSite: IS_PRODUCTION ? 'none' : 'lax',
     maxAge: 15 * 60 * 1000, // 15 minutes (matches ACCESS_TOKEN_EXPIRY)
     path: '/',
   })
@@ -29,7 +29,7 @@ export const setRefreshTokenCookie = (
   res.cookie('refreshToken', token, {
     httpOnly: true, // JavaScript can't access it
     secure: IS_PRODUCTION,
-    sameSite: 'lax',
+    sameSite: IS_PRODUCTION ? 'none' : 'lax',
     maxAge,
     path: '/', // Available on all routes
   })
@@ -57,7 +57,7 @@ export const clearAuthCookie = (res: Response) => {
   res.clearCookie('token', {
     httpOnly: true,
     secure: IS_PRODUCTION,
-    sameSite: 'lax',
+    sameSite: IS_PRODUCTION ? 'none' : 'lax',
     path: '/',
   })
 
@@ -65,7 +65,7 @@ export const clearAuthCookie = (res: Response) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: IS_PRODUCTION,
-    sameSite: 'lax',
+    sameSite: IS_PRODUCTION ? 'none' : 'lax',
     path: '/',
   })
 }

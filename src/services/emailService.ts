@@ -1,6 +1,8 @@
 import { Resend } from 'resend'
 import { RESEND_API_KEY } from '../config/env'
 import { FRONTEND_URL } from '../config/env'
+import { logger } from '../lib/logger'
+
 const resend = new Resend(RESEND_API_KEY)
 
 export async function sendPasswordResetEmail(
@@ -51,9 +53,9 @@ export async function sendPasswordResetEmail(
       `,
     })
 
-    console.log('Password reset email sent to:', email)
+    logger.info({ email }, 'Password reset email sent')
   } catch (error) {
-    console.error('Error sending email:', error)
+    logger.error({ error, email }, 'Error sending password reset email')
     throw new Error('Failed to send email')
   }
 }
@@ -126,8 +128,8 @@ export async function sendWelcomeEmail(email: string, name: string) {
       `,
     })
 
-    console.log('Welcome email sent to:', email)
+    logger.info({ email }, 'Welcome email sent')
   } catch (error) {
-    console.error('Error sending welcome email:', error)
+    logger.error({ error, email }, 'Error sending welcome email')
   }
 }

@@ -16,7 +16,7 @@ import {
 import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimiter'
 import { getUserIp } from '../utils/getUserIp'
 import passport from '../config/passport'
-import { requireUserId } from '../utils/getUserId'
+import { getUserId, requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
 import {
   validateEmail,
@@ -27,6 +27,7 @@ import {
   ACCESS_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY_DAYS,
 } from '../constants/tokenExpiry'
+import { logger } from '../lib/logger'
 import {
   clearAuthCookie,
   setAccessTokenCookie,
@@ -124,7 +125,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
       },
     })
   } catch (error) {
-    console.error('Registration error:', error)
+    logger.error({ error }, 'Registration error')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -189,7 +190,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const { passwordHash, ...safeUser } = user
     res.json({ user: safeUser })
   } catch (error) {
-    console.error('Login error:', error)
+    logger.error({ error, userId: getUserId(req) }, 'Logout error')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -209,7 +210,7 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
 
     res.json({ message: 'Logged out successfully' })
   } catch (error) {
-    console.error('Logout error:', error)
+    logger.error({ error, userId: getUserId(req) }, 'Logout error')
     // Still clear cookies even if DB operation fails
     clearAuthCookie(res)
     res.json({ message: 'Logged out successfully' })
@@ -218,15 +219,15 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
 
 // Refresh access token
 router.post('/refresh', async (req: Request, res: Response) => {
-  console.log('🔄 ===== REFRESH TOKEN REQUEST STARTED =====')
-  console.log('🔄 Request cookies:', {
-    hasRefreshToken: !!req.cookies.refreshToken,
-    hasAccessToken: !!req.cookies.token,
-    refreshTokenPreview: req.cookies.refreshToken
-      ? `${req.cookies.refreshToken.substring(0, 20)}...`
-      : 'NONE',
-    allCookies: Object.keys(req.cookies),
-  })
+  logger.debug('Refresh token request started')
+  logger.debug(
+    {
+      hasRefreshToken: !!req.cookies.refreshToken,
+      hasAccessToken: !!req.cookies.token,
+      cookieCount: Object.keys(req.cookies).length,
+    },
+    'Request cookies'
+  )
   try {
     const oldRefreshToken = req.cookies.refreshToken
     if (!oldRefreshToken)
@@ -256,12 +257,11 @@ router.post('/refresh', async (req: Request, res: Response) => {
     // Set both new tokens
     setAccessTokenCookie(res, newAccessToken)
     setRefreshTokenCookie(res, newPlainToken, false)
-    console.log('✅ ===== REFRESH TOKEN REQUEST COMPLETED SUCCESSFULLY =====')
+    logger.info({ userId }, 'Refresh token completed successfully')
 
     res.json({ message: 'Token refreshed successfully' })
   } catch (error) {
-    console.error('❌ ===== REFRESH TOKEN ERROR =====')
-    console.error('Token refresh error:', error)
+    logger.error({ error }, 'Token refresh error')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -341,7 +341,10 @@ router.post(
       }
       const user = await prisma.user.findUnique({ where: { email } })
       if (!user) {
-        console.log('Password reset requested for non-existent email:', email)
+        logger.info(
+          { email },
+          'Password reset requested for non-existent email'
+        )
         return res.status(200).json({
           message: 'If that email is registered, a reset link has been sent.',
         })
@@ -357,12 +360,12 @@ router.post(
         },
       })
       await sendPasswordResetEmail(email, resetToken)
-      console.log('Password reset token generated for:', email)
+      logger.info({ email }, 'Password reset token generated')
       res.status(200).json({
         message: 'If that email is registered, a reset link has been sent.',
       })
     } catch (error) {
-      console.error('Forgot password error:', error)
+      logger.error({ error }, 'Forgot password error')
       res.status(500).json({ error: 'Internal server error' })
     }
   }
@@ -414,7 +417,7 @@ router.post(
         message: 'Password has been reset successfully. Please log in again.',
       })
     } catch (error) {
-      console.error('Reset password error:', error)
+      logger.error({ error }, 'Reset password error')
       res.status(500).json({ error: 'Internal server error' })
     }
   }
@@ -486,13 +489,13 @@ router.get(
             redirectUrl = decoded.redirectUrl || '/'
           }
         } catch (error) {
-          console.error('Error decoding state:', error)
+          logger.warn({ error }, 'Error decoding OAuth state parameter')
         }
       }
 
       res.redirect(`${FRONTEND_URL}${redirectUrl}`)
     } catch (error) {
-      console.error('Google OAuth callback error:', error)
+      logger.error({ error }, 'Google OAuth callback error')
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
   }
@@ -564,13 +567,13 @@ router.get(
             redirectUrl = decoded.redirectUrl || '/'
           }
         } catch (error) {
-          console.error('❌ Error decoding state:', error)
+          logger.warn({ error }, 'Error decoding OAuth state parameter')
         }
       }
 
       res.redirect(`${FRONTEND_URL}${redirectUrl}`)
     } catch (error) {
-      console.error('GitHub OAuth callback error:', error)
+      logger.error({ error }, 'GitHub OAuth callback error')
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
   }

@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma'
+import { logger } from '../lib/logger'
 
 // This function cleans up expired tokens
 export async function cleanupExpiredTokens() {
@@ -16,7 +17,10 @@ export async function cleanupExpiredTokens() {
       },
     })
 
-    console.log(`Cleaned up ${resetTokenResult.count} expired reset tokens`)
+    logger.info(
+      { count: resetTokenResult.count },
+      'Cleaned up expired reset tokens'
+    )
 
     // Clean up expired refresh tokens (THIS IS NEW)
     const refreshTokenResult = await prisma.refreshToken.deleteMany({
@@ -27,8 +31,11 @@ export async function cleanupExpiredTokens() {
       },
     })
 
-    console.log(`Cleaned up ${refreshTokenResult.count} expired refresh tokens`)
+    logger.info(
+      { count: refreshTokenResult.count },
+      'Cleaned up expired refresh tokens'
+    )
   } catch (error) {
-    console.error('Error cleaning up expired tokens:', error)
+    logger.error({ error }, 'Error cleaning up expired tokens')
   }
 }

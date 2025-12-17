@@ -11,6 +11,7 @@ import {
   GOOGLE_REDIRECT_URI,
 } from './env'
 import { sendWelcomeEmail } from '../services/emailService'
+import { logger } from '../lib/logger'
 
 // Configure Google OAuth strategy
 passport.use(
@@ -29,16 +30,11 @@ passport.use(
         const avatar = profile.photos?.[0]?.value
 
         if (!email) {
-          console.error('No email from Google profile')
+          logger.error({ googleId }, 'No email from Google profile')
           return done(new Error('No email from Google'), false)
         }
 
-        console.log('Google profile data:', {
-          googleId,
-          email,
-          name,
-          avatar,
-        })
+        logger.debug({ googleId, email, name }, 'Google OAuth profile data')
 
         // Check if user exists by providerId (Google ID)
         let user = await prisma.user.findUnique({
@@ -46,7 +42,10 @@ passport.use(
         })
 
         if (!user) {
-          console.log('User not found by providerId, checking by email...')
+          logger.debug(
+            { email },
+            'User not found by providerId, checking by email'
+          )
 
           // Check if user exists by email
           const existingUser = await prisma.user.findUnique({
@@ -54,7 +53,10 @@ passport.use(
           })
 
           if (existingUser) {
-            console.log('Linking Google account to existing user:', email)
+            logger.info(
+              { email, provider: 'GOOGLE' },
+              'Linking Google account to existing user'
+            )
             // Link Google account to existing email account
             user = await prisma.user.update({
               where: { id: existingUser.id },
@@ -66,7 +68,10 @@ passport.use(
               },
             })
           } else {
-            console.log('Creating new user:', email)
+            logger.info(
+              { email, provider: 'GOOGLE' },
+              'Creating new user via OAuth'
+            )
             // Create new user
             user = await prisma.user.create({
               data: {
@@ -84,17 +89,20 @@ passport.use(
             // Send welcome email (don't fail OAuth if email fails)
             try {
               await sendWelcomeEmail(email, name || 'User')
-              console.log('Welcome email sent to:', email)
+              logger.info({ email }, 'Welcome email sent to new OAuth user')
             } catch (emailError) {
-              console.error('Failed to send welcome email:', emailError)
+              logger.error(
+                { error: emailError, email },
+                'Failed to send welcome email'
+              )
             }
           }
         } else {
-          console.log('Existing user found:', email)
+          logger.debug({ email }, 'Existing Google OAuth user found')
 
           // Update Avatar if changed on google
           if (avatar && user.avatar !== avatar) {
-            console.log('Updating avatar for user:', email)
+            logger.debug({ email }, 'Updating avatar from Google')
             user = await prisma.user.update({
               where: { id: user.id },
               data: { avatar },
@@ -102,12 +110,10 @@ passport.use(
           }
         }
 
-        console.log('Passport strategy: Returning user with id:', user.id)
-
         // Return the full user object
         return done(null, user)
       } catch (error) {
-        console.error('Passport Google OAuth strategy error:', error)
+        logger.error({ error }, 'Passport Google OAuth strategy error')
         return done(error as Error, false)
       }
     }
@@ -135,11 +141,11 @@ passport.use(
         const avatar = profile.photos?.[0]?.value
 
         if (!email) {
-          console.error('No email from GitHub profile')
+          logger.error({ githubId }, 'No email from GitHub profile')
           return done(new Error('No email from GitHub'), false)
         }
 
-        console.log('GitHub profile data:', { githubId, email, name, avatar })
+        logger.debug({ githubId, email, name }, 'GitHub OAuth profile data')
 
         let user = await prisma.user.findUnique({
           where: { providerId: githubId },
@@ -177,7 +183,10 @@ passport.use(
             try {
               await sendWelcomeEmail(email, name || 'User')
             } catch (emailError) {
-              console.error('Failed to send welcome email:', emailError)
+              logger.error(
+                { error: emailError, email },
+                'Failed to send welcome email to GitHub user'
+              )
             }
           }
         } else {
@@ -191,7 +200,7 @@ passport.use(
 
         return done(null, user)
       } catch (error) {
-        console.error('GitHub OAuth error:', error)
+        logger.error({ error }, 'GitHub OAuth error')
         return done(error as Error, false)
       }
     }

@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
-import { requireUserId } from '../utils/getUserId'
+import { getUserId, requireUserId } from '../utils/getUserId'
 import { IS_TEST } from '../config/env'
+import { logger } from '../lib/logger'
 
 /**
  * Middleware to enforce daily generation limit per user
@@ -40,7 +41,7 @@ export const dailyGenerationLimit = (maxGenerations: number = 50) => {
 
       next()
     } catch (error) {
-      console.error('Daily limit check error:', error)
+      logger.error({ error, userId: getUserId(req) }, 'Daily limit check error')
       next()
     }
   }

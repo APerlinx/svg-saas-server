@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { authMiddleware } from '../middleware/auth'
 import { requireUserId } from '../utils/getUserId'
+import { logger } from '../lib/logger'
 
 const router = Router()
 
@@ -18,7 +19,7 @@ router.get('/', authMiddleware, async (req, res) => {
     })
     res.json(users)
   } catch (error) {
-    console.error('Error fetching users:', error)
+    logger.error({ error }, 'Error fetching users')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -46,7 +47,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     }
     res.json({ user })
   } catch (error) {
-    console.error('Error fetching user data:', error)
+    logger.error({ error, userId: req.userId }, 'Error fetching user data')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
