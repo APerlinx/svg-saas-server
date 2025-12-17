@@ -44,13 +44,6 @@ import {
 
 const router = Router()
 
-// CSRF token endpoint - generateCsrfToken sets the cookie, then send 204
-router.get('/csrf', (req, res, next) => {
-  generateCsrfToken(req, res, () => {
-    res.sendStatus(204)
-  })
-})
-
 // User registration
 router.post(
   '/register',
