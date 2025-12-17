@@ -88,7 +88,7 @@ router.post(
 
       const creditsUsed = 1
       // Store SVG generation and decrement user credits in a transaction
-      await prisma.$transaction([
+      const [, updatedUser] = await prisma.$transaction([
         prisma.svgGeneration.create({
           data: {
             userId,
@@ -108,6 +108,7 @@ router.post(
       // Respond with generated SVG
       res.status(201).json({
         svgCode: cleanSvg,
+        credits: updatedUser.credits,
       })
     } catch (error) {
       logger.error({ error, userId: getUserId(req) }, 'SVG Generation error')
