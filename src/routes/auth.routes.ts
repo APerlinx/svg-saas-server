@@ -18,6 +18,7 @@ import { getUserIp } from '../utils/getUserIp'
 import passport from '../config/passport'
 import { getUserId, requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
+import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf'
 import {
   validateEmail,
   validatePassword,
@@ -43,228 +44,256 @@ import {
 
 const router = Router()
 
-// User registration
-router.post('/register', authLimiter, async (req: Request, res: Response) => {
-  try {
-    let { email, password, name, agreedToTerms } = req.body
-
-    email = sanitizeInput(email?.toLowerCase() || '')
-    name = sanitizeInput(name || '')
-
-    // Validate inputs
-    const emailError = validateEmail(email)
-    if (emailError) {
-      return res.status(400).json({ error: emailError })
-    }
-
-    const passwordError = validatePassword(password)
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError })
-    }
-
-    const nameError = validateName(name)
-    if (nameError) {
-      return res.status(400).json({ error: nameError })
-    }
-    if (agreedToTerms !== true) {
-      return res.status(400).json({
-        message:
-          'You must accept the Terms of Service and Privacy Policy to create an account',
-      })
-    }
-
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    })
-    if (existingUser) {
-      return res
-        .status(400)
-        .json({ error: 'Email is invalid or already taken' })
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10)
-    const user = await prisma.user.create({
-      data: {
-        email,
-        passwordHash: hashedPassword,
-        name,
-        credits: 10,
-        termsAcceptedAt: new Date(),
-        termsAcceptedIp: getUserIp(req),
-      },
-    })
-    // Generate access token (short-lived)
-    const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: ACCESS_TOKEN_EXPIRY,
-    })
-
-    // Generate refresh token (long-lived, stored in DB)
-    const { plainToken } = await createRefreshToken(
-      user.id,
-      REFRESH_TOKEN_EXPIRY_DAYS,
-      getUserIp(req),
-      req.headers['user-agent'] as string | undefined
-    )
-
-    // Send welcome email
-    await sendWelcomeEmail(email, name)
-
-    // Set both cookies
-    setAccessTokenCookie(res, accessToken)
-    setRefreshTokenCookie(res, plainToken, false)
-
-    res.status(201).json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        credits: user.credits,
-        avatar: user.avatar,
-      },
-    })
-  } catch (error) {
-    logger.error({ error }, 'Registration error')
-    res.status(500).json({ error: 'Internal server error' })
-  }
+// CSRF token endpoint - generateCsrfToken sets the cookie, then send 204
+router.get('/csrf', (req, res, next) => {
+  generateCsrfToken(req, res, () => {
+    res.sendStatus(204)
+  })
 })
+
+// User registration
+router.post(
+  '/register',
+  validateCsrfToken,
+  authLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      let { email, password, name, agreedToTerms } = req.body
+
+      email = sanitizeInput(email?.toLowerCase() || '')
+      name = sanitizeInput(name || '')
+
+      // Validate inputs
+      const emailError = validateEmail(email)
+      if (emailError) {
+        return res.status(400).json({ error: emailError })
+      }
+
+      const passwordError = validatePassword(password)
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError })
+      }
+
+      const nameError = validateName(name)
+      if (nameError) {
+        return res.status(400).json({ error: nameError })
+      }
+      if (agreedToTerms !== true) {
+        return res.status(400).json({
+          message:
+            'You must accept the Terms of Service and Privacy Policy to create an account',
+        })
+      }
+
+      // Check if user already exists
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      })
+      if (existingUser) {
+        return res
+          .status(400)
+          .json({ error: 'Email is invalid or already taken' })
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10)
+      const user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash: hashedPassword,
+          name,
+          credits: 10,
+          termsAcceptedAt: new Date(),
+          termsAcceptedIp: getUserIp(req),
+        },
+      })
+      // Generate access token (short-lived)
+      const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+      })
+
+      // Generate refresh token (long-lived, stored in DB)
+      const { plainToken } = await createRefreshToken(
+        user.id,
+        REFRESH_TOKEN_EXPIRY_DAYS,
+        getUserIp(req),
+        req.headers['user-agent'] as string | undefined
+      )
+
+      // Send welcome email
+      await sendWelcomeEmail(email, name)
+
+      // Set both cookies
+      setAccessTokenCookie(res, accessToken)
+      setRefreshTokenCookie(res, plainToken, false)
+
+      res.status(201).json({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          credits: user.credits,
+          avatar: user.avatar,
+        },
+      })
+    } catch (error) {
+      logger.error({ error }, 'Registration error')
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
 
 // User login
-router.post('/login', authLimiter, async (req: Request, res: Response) => {
-  try {
-    let { email, password, rememberMe } = req.body
-    email = sanitizeInput(email?.toLowerCase() || '')
+router.post(
+  '/login',
+  validateCsrfToken,
+  authLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      let { email, password, rememberMe } = req.body
+      email = sanitizeInput(email?.toLowerCase() || '')
 
-    // Validate inputs
-    const emailError = validateEmail(email)
-    if (emailError) {
-      return res.status(400).json({ error: emailError })
+      // Validate inputs
+      const emailError = validateEmail(email)
+      if (emailError) {
+        return res.status(400).json({ error: emailError })
+      }
+
+      const passwordError = validatePassword(password)
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError })
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          avatar: true,
+          plan: true,
+          credits: true,
+          passwordHash: true,
+        },
+      })
+
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
+
+      const isMatch = await bcrypt.compare(password, user.passwordHash!)
+      if (!isMatch) {
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
+
+      // Generate access token
+      const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+      })
+
+      // Generate refresh token
+      const expiryDays = rememberMe ? 30 : REFRESH_TOKEN_EXPIRY_DAYS
+      const { plainToken } = await createRefreshToken(
+        user.id,
+        expiryDays,
+        getUserIp(req),
+        req.headers['user-agent'] as string | undefined
+      )
+
+      // Set both cookies
+      setAccessTokenCookie(res, accessToken)
+      setRefreshTokenCookie(res, plainToken, rememberMe)
+
+      const { passwordHash, ...safeUser } = user
+      res.json({ user: safeUser })
+    } catch (error) {
+      logger.error({ error, userId: getUserId(req) }, 'Logout error')
+      res.status(500).json({ error: 'Internal server error' })
     }
-
-    const passwordError = validatePassword(password)
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError })
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatar: true,
-        plan: true,
-        credits: true,
-        passwordHash: true,
-      },
-    })
-
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-
-    const isMatch = await bcrypt.compare(password, user.passwordHash!)
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-
-    // Generate access token
-    const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: ACCESS_TOKEN_EXPIRY,
-    })
-
-    // Generate refresh token
-    const expiryDays = rememberMe ? 30 : REFRESH_TOKEN_EXPIRY_DAYS
-    const { plainToken } = await createRefreshToken(
-      user.id,
-      expiryDays,
-      getUserIp(req),
-      req.headers['user-agent'] as string | undefined
-    )
-
-    // Set both cookies
-    setAccessTokenCookie(res, accessToken)
-    setRefreshTokenCookie(res, plainToken, rememberMe)
-
-    const { passwordHash, ...safeUser } = user
-    res.json({ user: safeUser })
-  } catch (error) {
-    logger.error({ error, userId: getUserId(req) }, 'Logout error')
-    res.status(500).json({ error: 'Internal server error' })
   }
-})
+)
 
 // User logout
-router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const refreshToken = req.cookies.refreshToken
+router.post(
+  '/logout',
+  validateCsrfToken,
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const refreshToken = req.cookies.refreshToken
 
-    // Revoke refresh token from database
-    if (refreshToken) {
-      await revokeRefreshToken(refreshToken)
+      // Revoke refresh token from database
+      if (refreshToken) {
+        await revokeRefreshToken(refreshToken)
+      }
+
+      // Clear cookies
+      clearAuthCookie(res)
+
+      res.json({ message: 'Logged out successfully' })
+    } catch (error) {
+      logger.error({ error, userId: getUserId(req) }, 'Logout error')
+      // Still clear cookies even if DB operation fails
+      clearAuthCookie(res)
+      res.json({ message: 'Logged out successfully' })
     }
-
-    // Clear cookies
-    clearAuthCookie(res)
-
-    res.json({ message: 'Logged out successfully' })
-  } catch (error) {
-    logger.error({ error, userId: getUserId(req) }, 'Logout error')
-    // Still clear cookies even if DB operation fails
-    clearAuthCookie(res)
-    res.json({ message: 'Logged out successfully' })
   }
-})
+)
 
 // Refresh access token
-router.post('/refresh', async (req: Request, res: Response) => {
-  logger.debug('Refresh token request started')
-  logger.debug(
-    {
-      hasRefreshToken: !!req.cookies.refreshToken,
-      hasAccessToken: !!req.cookies.token,
-      cookieCount: Object.keys(req.cookies).length,
-    },
-    'Request cookies'
-  )
-  try {
-    const oldRefreshToken = req.cookies.refreshToken
-    if (!oldRefreshToken)
-      return res.status(401).json({ error: 'No refresh token provided' })
-
-    const rotated = await verifyAndRotateRefreshToken(
-      oldRefreshToken,
-      REFRESH_TOKEN_EXPIRY_DAYS,
-      getUserIp(req),
-      req.headers['user-agent'] as string | undefined
+router.post(
+  '/refresh',
+  validateCsrfToken,
+  async (req: Request, res: Response) => {
+    logger.debug('Refresh token request started')
+    logger.debug(
+      {
+        hasRefreshToken: !!req.cookies.refreshToken,
+        hasAccessToken: !!req.cookies.token,
+        cookieCount: Object.keys(req.cookies).length,
+      },
+      'Request cookies'
     )
+    try {
+      const oldRefreshToken = req.cookies.refreshToken
+      if (!oldRefreshToken)
+        return res.status(401).json({ error: 'No refresh token provided' })
 
-    if (!rotated.ok) {
-      if (rotated.reason === 'REUSED') {
-        clearAuthCookie(res)
-        // log security incident
+      const rotated = await verifyAndRotateRefreshToken(
+        oldRefreshToken,
+        REFRESH_TOKEN_EXPIRY_DAYS,
+        getUserIp(req),
+        req.headers['user-agent'] as string | undefined
+      )
+
+      if (!rotated.ok) {
+        if (rotated.reason === 'REUSED') {
+          clearAuthCookie(res)
+          // log security incident
+        }
+        return res
+          .status(401)
+          .json({ error: 'Invalid or expired refresh token' })
       }
-      return res.status(401).json({ error: 'Invalid or expired refresh token' })
+
+      const { userId, newPlainToken } = rotated
+      // Generate new access token
+      const newAccessToken = jwt.sign({ userId }, JWT_SECRET, {
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+      })
+
+      // Set both new tokens
+      setAccessTokenCookie(res, newAccessToken)
+      setRefreshTokenCookie(res, newPlainToken, false)
+      logger.info({ userId }, 'Refresh token completed successfully')
+
+      res.json({ message: 'Token refreshed successfully' })
+    } catch (error) {
+      logger.error({ error }, 'Token refresh error')
+      res.status(500).json({ error: 'Internal server error' })
     }
-
-    const { userId, newPlainToken } = rotated
-    // Generate new access token
-    const newAccessToken = jwt.sign({ userId }, JWT_SECRET, {
-      expiresIn: ACCESS_TOKEN_EXPIRY,
-    })
-
-    // Set both new tokens
-    setAccessTokenCookie(res, newAccessToken)
-    setRefreshTokenCookie(res, newPlainToken, false)
-    logger.info({ userId }, 'Refresh token completed successfully')
-
-    res.json({ message: 'Token refreshed successfully' })
-  } catch (error) {
-    logger.error({ error }, 'Token refresh error')
-    res.status(500).json({ error: 'Internal server error' })
   }
-})
+)
 
 // Get active sessions
 router.get('/sessions', authMiddleware, async (req, res) => {
@@ -285,16 +314,21 @@ router.get('/sessions', authMiddleware, async (req, res) => {
 })
 
 // Revoke specific session
-router.delete('/sessions/:id', authMiddleware, async (req, res) => {
-  const userId = requireUserId(req)
-  const { id } = req.params
+router.delete(
+  '/sessions/:id',
+  validateCsrfToken,
+  authMiddleware,
+  async (req, res) => {
+    const userId = requireUserId(req)
+    const { id } = req.params
 
-  await prisma.refreshToken.deleteMany({
-    where: { id, userId }, // Ensure user owns this token
-  })
+    await prisma.refreshToken.deleteMany({
+      where: { id, userId }, // Ensure user owns this token
+    })
 
-  res.json({ message: 'Session revoked' })
-})
+    res.json({ message: 'Session revoked' })
+  }
+)
 
 // Get current authenticated user
 router.get(
@@ -328,6 +362,7 @@ router.get(
 // Forgot password
 router.post(
   '/forgot-password',
+  validateCsrfToken,
   forgotPasswordLimiter,
   async (req: Request, res: Response) => {
     try {
@@ -374,6 +409,7 @@ router.post(
 // Reset password
 router.post(
   '/reset-password',
+  validateCsrfToken,
   forgotPasswordLimiter,
   async (req: Request, res: Response) => {
     try {

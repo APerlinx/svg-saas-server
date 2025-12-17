@@ -55,7 +55,7 @@ app.get('/api/health', (req, res) => {
 })
 app.use('/api', apiLimiter)
 //Auth
-app.use('/api/auth', validateCsrfToken, authRoutes)
+app.use('/api/auth', authRoutes)
 // users
 app.use('/api/user', validateCsrfToken, userRoutes)
 // SVG generation

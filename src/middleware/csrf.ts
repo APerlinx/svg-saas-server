@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import crypto from 'crypto'
-import { IS_PRODUCTION } from '../config/env'
+import { IS_PRODUCTION, IS_TEST } from '../config/env'
 
 /**
  * Generate CSRF token and set it as a cookie
@@ -23,7 +23,7 @@ export const generateCsrfToken = (
   res.cookie('csrf-token', csrfToken, {
     httpOnly: false, // MUST be false - JS needs to read it
     secure: IS_PRODUCTION, // HTTPS only in production
-    sameSite: IS_PRODUCTION ? 'none' : 'strict', // Don't send to other sites
+    sameSite: IS_PRODUCTION ? 'none' : 'lax',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     path: '/', // Available on all routes
   })
@@ -40,6 +40,11 @@ export const validateCsrfToken = (
   res: Response,
   next: NextFunction
 ) => {
+  // Skip validation in test environment
+  if (IS_TEST) {
+    return next()
+  }
+
   // Skip validation for safe methods (they don't change state)
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     return next()
