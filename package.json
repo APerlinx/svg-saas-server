@@ -9,6 +9,7 @@
     "test:watch": "cross-env NODE_ENV=test jest --watch",
     "build": "tsc",
     "start": "cross-env NODE_ENV=production node dist/server.js",
+    "seed:test": "cross-env NODE_ENV=test ts-node ./prisma/seed-test.ts",
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
