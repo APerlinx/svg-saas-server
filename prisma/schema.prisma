@@ -16,7 +16,7 @@ model User {
   providerId   String?         @unique
   plan         Plan            @default(FREE)
   credits      Int             @default(3)
-  avatar                String? 
+  avatar       String? 
 
   generations  SvgGeneration[]
   refreshTokens RefreshToken[]
