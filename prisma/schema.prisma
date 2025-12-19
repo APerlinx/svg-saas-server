@@ -42,7 +42,7 @@ model SvgGeneration {
   prompt     String
   svg        String   // the actual SVG code
   style      String?  // 'outline', 'duotone', etc.
-  model      String?  @default("gpt-5-mini")
+  model      String?  @default("gpt-4o")
   creditsUsed  Int?     // optional
   privacy    Boolean  @default(false)
   
