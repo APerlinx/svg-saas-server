@@ -6,12 +6,11 @@ export async function generateSvg(
   style: string,
   model: string
 ): Promise<string> {
-  // In test environment, return a dummy SVG instead of calling OpenAI API
   if (IS_TEST) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <rect x="32" y="32" width="192" height="192" rx="16" fill="none" stroke="#111111" stroke-width="8"/>
   <circle cx="128" cy="128" r="32" fill="#111111"/>
-</svg>`
+  </svg>`
   }
 
   const resolvedModel = model || 'gpt-4o'
