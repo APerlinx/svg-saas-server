@@ -1,12 +1,19 @@
 import { openai } from '../lib/openai'
-
-// TODO: Check model and based on that apply different chats (chatGPT,Gemini,etc)
+import { IS_TEST } from '../config/env'
 
 export async function generateSvg(
   prompt: string,
   style: string,
   model: string
 ): Promise<string> {
+  // In test environment, return a dummy SVG instead of calling OpenAI API
+  if (IS_TEST) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect x="32" y="32" width="192" height="192" rx="16" fill="none" stroke="#111111" stroke-width="8"/>
+  <circle cx="128" cy="128" r="32" fill="#111111"/>
+</svg>`
+  }
+
   const resolvedModel = model || 'gpt-4o'
 
   const response = await openai.chat.completions.create({
