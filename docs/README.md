@@ -1,4 +1,6 @@
-# SVG SaaS - Backend
+[![CI (server)](https://github.com/APerlinx/svg-saas-server/actions/workflows/ci.yml/badge.svg)](https://github.com/APerlinx/svg-saas-server/actions/workflows/ci.yml)
+
+# chatSVG - Backend
 
 A production-ready SaaS backend for generating SVG assets with enterprise-grade authentication, session management, and security-first token handling. Built with modern best practices including refresh token rotation, reuse detection, CSRF protection, and comprehensive test coverage.
 
