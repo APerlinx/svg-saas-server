@@ -1,5 +1,16 @@
+import { IS_PRODUCTION, PORT, FRONTEND_URL, NODE_ENV } from './config/env'
+import * as Sentry from '@sentry/node'
+
+// Initialize Sentry in production only
+if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: NODE_ENV,
+    tracesSampleRate: 1.0,
+  })
+}
+
 import app from './app'
-import { FRONTEND_URL, IS_PRODUCTION, PORT } from './config/env'
 import { startScheduledJobs } from './jobs'
 import { logger } from './lib/logger'
 
