@@ -325,6 +325,8 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema.
 
 ## 🚀 Deployment
 
+**Note:** CI/CD is documented in the client repository.
+
 ### Production Checklist
 
 - [ ] Set `NODE_ENV=production`
