@@ -1,4 +1,4 @@
-# SVG SaaS - Backend
+# chatSVG - Backend
 
 A production-ready SaaS backend for generating SVG assets with enterprise-grade authentication, session management, and security-first token handling. Built with modern best practices including refresh token rotation, reuse detection, CSRF protection, and comprehensive test coverage.
 
@@ -324,6 +324,8 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema.
 ---
 
 ## 🚀 Deployment
+
+**Note:** CI/CD is documented in the client repository.
 
 ### Production Checklist
 
