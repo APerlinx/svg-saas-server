@@ -38,6 +38,338 @@ This application uses a **JWT-based authentication system** with **refresh token
 
 ---
 
+## Authentication Flow Diagrams
+
+### 1. Registration Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant DB
+    participant Email
+
+    Client->>API: POST /api/auth/register
+    Note over Client: email, password, name, agreedToTerms
+
+    API->>API: Validate input (email format, password length)
+    API->>DB: Check if email exists
+
+    alt Email already exists
+        DB-->>API: User found
+        API-->>Client: 409 Conflict
+    else New user
+        DB-->>API: No user found
+        API->>API: Hash password (bcrypt, 10 rounds)
+        API->>DB: Create user record
+        API->>DB: Store terms acceptance (IP + timestamp)
+
+        API->>API: Generate JWT access token (15min)
+        API->>API: Generate refresh token (random bytes)
+        API->>API: Hash refresh token (SHA-256)
+        API->>DB: Store hashed refresh token
+
+        API->>API: Set HttpOnly cookies (token, refreshToken, csrf-token)
+        API-->>Client: 201 Created + User object
+
+        Note over Email: Optional: Send welcome email
+    end
+```
+
+### 2. Login Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant RateLimiter
+    participant API
+    participant DB
+
+    Client->>RateLimiter: POST /api/auth/login
+    Note over Client: email, password, rememberMe
+
+    alt Too many attempts
+        RateLimiter-->>Client: 429 Too Many Requests
+    else Within limit
+        RateLimiter->>API: Forward request
+
+        API->>DB: Find user by email
+
+        alt User not found
+            DB-->>API: No user
+            API-->>Client: 401 Invalid credentials
+        else User found
+            DB-->>API: User with passwordHash
+            API->>API: Compare password with bcrypt
+
+            alt Password incorrect
+                API-->>Client: 401 Invalid credentials
+            else Password correct
+                API->>API: Generate JWT (15min)
+                API->>API: Generate refresh token
+                API->>API: Hash refresh token (SHA-256)
+
+                API->>DB: Store refresh token record
+                Note over DB: familyId, expiresAt, ipAddress, userAgent
+
+                alt rememberMe = true
+                    API->>API: Set refresh token expiry to 30 days
+                else rememberMe = false
+                    API->>API: Set refresh token expiry to 7 days
+                end
+
+                API->>API: Set HttpOnly cookies
+                API-->>Client: 200 OK + User object
+            end
+        end
+    end
+```
+
+### 3. Token Refresh Flow (with Rotation & Reuse Detection)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant DB
+
+    Client->>API: POST /api/auth/refresh
+    Note over Client: Sends refreshToken cookie
+
+    API->>API: Extract & hash refresh token
+    API->>DB: BEGIN TRANSACTION
+
+    API->>DB: Find refresh token record (FOR UPDATE)
+
+    alt Token not found
+        DB-->>API: NULL
+        API->>DB: ROLLBACK
+        API-->>Client: 401 Invalid token
+    else Token found
+        DB-->>API: Token record
+
+        alt Token expired
+            API->>DB: ROLLBACK
+            API-->>Client: 401 Token expired
+        else Token already revoked (revokedAt != null)
+            Note over API: 🚨 REUSE DETECTED - Security breach!
+            API->>DB: Find all tokens in family
+            API->>DB: Revoke entire token family
+            API->>DB: COMMIT
+            API->>API: Clear cookies
+            API-->>Client: 401 Token reused (security breach)
+        else Token valid
+            API->>API: Generate new access token (15min)
+            API->>API: Generate new refresh token
+            API->>API: Hash new refresh token
+
+            API->>DB: Create new refresh token record
+            Note over DB: Same familyId, new token
+
+            API->>DB: Mark old token as revoked
+            API->>DB: Link: old.replacedByTokenId = new.id
+
+            API->>DB: COMMIT
+
+            API->>API: Set new cookies (token, refreshToken)
+            API-->>Client: 200 OK
+            Note over Client: Client now has fresh tokens
+        end
+    end
+```
+
+### 4. OAuth Flow (Google/GitHub)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant OAuth Provider
+    participant DB
+
+    Client->>API: GET /api/auth/google (or /github)
+    API->>API: Generate CSRF state token
+    API->>API: Store state in session/cookie
+
+    API-->>Client: 302 Redirect to OAuth provider
+    Note over Client: Redirects to Google/GitHub login
+
+    Client->>OAuth Provider: User logs in & grants permission
+    OAuth Provider-->>Client: 302 Redirect to callback
+    Note over Client: /api/auth/google/callback?code=...&state=...
+
+    Client->>API: GET /api/auth/google/callback
+    API->>API: Verify state token (CSRF protection)
+
+    alt State invalid
+        API-->>Client: 401 Invalid state
+    else State valid
+        API->>OAuth Provider: Exchange code for access token
+        OAuth Provider-->>API: Access token
+
+        API->>OAuth Provider: Fetch user profile
+        OAuth Provider-->>API: Profile (email, name, avatar, id)
+
+        API->>DB: Find user by provider + providerId
+
+        alt User exists
+            DB-->>API: Existing user
+        else New user
+            DB-->>API: NULL
+            API->>DB: Create new user
+            Note over DB: provider=GOOGLE/GITHUB<br/>providerId=oauth_user_id<br/>passwordHash=null
+        end
+
+        API->>API: Generate JWT (15min)
+        API->>API: Generate refresh token
+        API->>DB: Store refresh token
+
+        API->>API: Set HttpOnly cookies
+        API-->>Client: 302 Redirect to frontend
+        Note over Client: User is now logged in
+    end
+```
+
+### 5. Password Reset Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant DB
+    participant Email
+
+    Note over Client,Email: Step 1: Request Reset
+    Client->>API: POST /api/auth/forgot-password
+    Note over Client: { email }
+
+    API->>DB: Find user by email
+
+    alt User not found
+        Note over API: Return success anyway (security: don't reveal if email exists)
+        API-->>Client: 200 OK
+    else User found
+        DB-->>API: User record
+
+        API->>API: Generate reset token (32 random bytes)
+        API->>API: Hash token (SHA-256)
+        API->>DB: Store hashed token + expiry (1 hour)
+
+        API->>Email: Send reset email with plain token
+        Note over Email: Link: /reset-password?token=abc123
+
+        API-->>Client: 200 OK
+    end
+
+    Note over Client,Email: Step 2: Reset Password
+    Client->>API: POST /api/auth/reset-password
+    Note over Client: { token, newPassword }
+
+    API->>API: Hash provided token
+    API->>DB: Find user with matching token hash
+
+    alt Token not found or expired
+        DB-->>API: NULL
+        API-->>Client: 401 Invalid or expired token
+    else Token valid
+        DB-->>API: User record
+
+        API->>API: Hash new password (bcrypt, 10 rounds)
+        API->>DB: Update user.passwordHash
+        API->>DB: Clear reset token fields
+
+        Note over API: 🔒 Security: Force logout all devices
+        API->>DB: Revoke ALL refresh tokens for user
+
+        API->>Email: Send confirmation email
+        API-->>Client: 200 OK
+
+        Note over Client: User must log in again
+    end
+```
+
+### 6. Multi-Device Session Management
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Mobile
+    participant API
+    participant DB
+
+    Note over Browser,DB: User logs in on multiple devices
+
+    Browser->>API: POST /api/auth/login
+    API->>DB: Create refresh token (familyId: A)
+    API-->>Browser: Cookies set
+
+    Mobile->>API: POST /api/auth/login
+    API->>DB: Create refresh token (familyId: B)
+    API-->>Mobile: Cookies set
+
+    Note over Browser,DB: User views active sessions
+
+    Browser->>API: GET /api/auth/sessions
+    API->>DB: Fetch all refresh tokens for user
+    DB-->>API: [Token A, Token B]
+    API-->>Browser: Sessions list (2 devices)
+
+    Note over Browser,DB: User logs out from mobile
+
+    Browser->>API: DELETE /api/auth/sessions/{token-B-id}
+    API->>DB: Revoke token B
+    API-->>Browser: 200 OK
+
+    Mobile->>API: POST /api/auth/refresh
+    API->>DB: Check token B
+    DB-->>API: Token revoked
+    API-->>Mobile: 401 Unauthorized (logged out)
+```
+
+### 7. Token Reuse Detection (Security Scenario)
+
+```mermaid
+sequenceDiagram
+    participant Attacker
+    participant LegitUser
+    participant API
+    participant DB
+
+    Note over Attacker,DB: Scenario: Attacker steals old refresh token
+
+    LegitUser->>API: POST /api/auth/refresh
+    Note over LegitUser: Token V1 (familyId: X)
+
+    API->>DB: BEGIN TRANSACTION
+    API->>DB: Rotate token V1 → V2
+    Note over DB: V1.revokedAt = now<br/>V1.replacedByTokenId = V2.id<br/>V2 created in family X
+    API->>DB: COMMIT
+    API-->>LegitUser: New token V2
+
+    Note over Attacker: 🚨 Attacker tries to use OLD token V1
+    Attacker->>API: POST /api/auth/refresh
+    Note over Attacker: Token V1 (already revoked)
+
+    API->>DB: Find token V1
+    DB-->>API: Token record (revokedAt != null)
+
+    Note over API: ⚠️ REUSE DETECTED!
+    API->>DB: Find familyId X
+    API->>DB: Revoke ALL tokens in family X
+    Note over DB: Token V2 also revoked
+
+    API-->>Attacker: 401 Token reused (clears cookies)
+
+    Note over LegitUser: Next request fails
+    LegitUser->>API: POST /api/auth/refresh
+    Note over LegitUser: Token V2 (now revoked)
+    API-->>LegitUser: 401 Token revoked
+
+    Note over LegitUser: User forced to log in again (secure!)
+```
+
+---
+
 ## Database Schema
 
 ### User Model
