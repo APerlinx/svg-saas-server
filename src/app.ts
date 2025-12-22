@@ -10,6 +10,7 @@ import { generateCsrfToken, validateCsrfToken } from './middleware/csrf'
 import { apiLimiter } from './middleware/rateLimiter'
 import pinoHttp from 'pino-http'
 import { logger } from './lib/logger'
+import * as Sentry from '@sentry/node'
 
 const app = express()
 
@@ -66,5 +67,25 @@ app.use('/api/auth', authRoutes)
 app.use('/api/user', validateCsrfToken, userRoutes)
 // SVG generation
 app.use('/api/svg', validateCsrfToken, svgRoutes)
+
+// Generic error handler
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    // Log error with Pino
+    logger.error({ error: err, path: req.path }, 'Unhandled error')
+
+    // Capture error in Sentry (production only)
+    if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+      Sentry.captureException(err)
+    }
+
+    res.status(500).json({ error: 'Internal server error' })
+  }
+)
 
 export default app
