@@ -12,6 +12,7 @@ import pinoHttp from 'pino-http'
 import { logger } from './lib/logger'
 import * as Sentry from '@sentry/node'
 import { requestIdMiddleware } from './middleware/requestId'
+import prisma from './lib/prisma'
 
 const app = express()
 
@@ -61,10 +62,35 @@ app.use(
   })
 )
 
-// Health check endpoint
+// Health check endpoint (simple liveness check)
 app.get('/api/health', (req, res) => {
   res.status(200).json({ ok: true })
 })
+
+// Readiness check (database + future Redis connectivity)
+app.get('/api/ready', async (req, res) => {
+  try {
+    // Check database connectivity
+    await prisma.$queryRaw`SELECT 1`
+
+    // TODO: Add Redis check when implemented
+    // await redis.ping()
+
+    res.status(200).json({
+      ok: true,
+      database: 'connected',
+      // redis: 'connected'
+    })
+  } catch (error) {
+    logger.error({ error }, 'Readiness check failed')
+    res.status(503).json({
+      ok: false,
+      database: 'disconnected',
+      error: 'Service unavailable',
+    })
+  }
+})
+
 app.use('/api', apiLimiter)
 
 // CSRF token endpoint
