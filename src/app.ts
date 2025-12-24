@@ -11,6 +11,7 @@ import { apiLimiter } from './middleware/rateLimiter'
 import pinoHttp from 'pino-http'
 import { logger } from './lib/logger'
 import * as Sentry from '@sentry/node'
+import { requestIdMiddleware } from './middleware/requestId'
 
 const app = express()
 
@@ -38,6 +39,9 @@ app.use(
 app.use(express.json())
 app.use(cookieParser())
 
+// Add request ID tracking
+app.use(requestIdMiddleware)
+
 // Add CSRF token generation middleware
 app.use((req, res, next) => {
   if (req.path === '/health') return next()
@@ -47,8 +51,15 @@ app.use((req, res, next) => {
 // Initialize Passport middleware
 app.use(passport.initialize())
 
-// Attach pino HTTP logger
-app.use(pinoHttp({ logger }))
+// Attach pino HTTP logger with requestId
+app.use(
+  pinoHttp({
+    logger,
+    customProps: (req) => ({
+      requestId: req.requestId,
+    }),
+  })
+)
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -77,14 +88,20 @@ app.use(
     next: express.NextFunction
   ) => {
     // Log error with Pino
-    logger.error({ error: err, path: req.path }, 'Unhandled error')
+    logger.error(
+      { error: err, path: req.path, requestId: req.requestId },
+      'Unhandled error'
+    )
 
     // Capture error in Sentry (production only)
     if (IS_PRODUCTION && process.env.SENTRY_DSN) {
       Sentry.captureException(err)
     }
 
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({
+      error: 'Internal server error',
+      requestId: req.requestId,
+    })
   }
 )
 
