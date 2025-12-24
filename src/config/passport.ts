@@ -36,9 +36,14 @@ passport.use(
 
         logger.debug({ googleId, email, name }, 'Google OAuth profile data')
 
-        // Check if user exists by providerId (Google ID)
+        // Check if user exists by provider ID
         let user = await prisma.user.findUnique({
-          where: { providerId: googleId },
+          where: {
+            provider_providerId: {
+              provider: 'GOOGLE',
+              providerId: googleId,
+            },
+          },
         })
 
         if (!user) {
@@ -148,7 +153,12 @@ passport.use(
         logger.debug({ githubId, email, name }, 'GitHub OAuth profile data')
 
         let user = await prisma.user.findUnique({
-          where: { providerId: githubId },
+          where: {
+            provider_providerId: {
+              provider: 'GITHUB',
+              providerId: githubId,
+            },
+          },
         })
 
         if (!user) {

@@ -13,7 +13,7 @@ model User {
   passwordHash String?          // bcrypt hash
   name         String?         
   provider     AuthProvider    @default(EMAIL)
-  providerId   String?         @unique
+  providerId   String?         
   plan         Plan            @default(FREE)
   credits      Int             @default(3)
   avatar       String? 
@@ -31,7 +31,7 @@ model User {
   termsAcceptedIp   String?
 
   @@index([email])
-  @@index([providerId])
+  @@unique([provider, providerId])
 }
 
 model SvgGeneration {

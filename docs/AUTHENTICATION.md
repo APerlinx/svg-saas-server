@@ -814,7 +814,7 @@ export async function refreshAccessToken(): Promise<boolean> {
 
 - [x] Access tokens expire in 15 minutes
 - [x] Refresh tokens expire in 7-30 days
-- [x] Rate limiting set to 5 attempts (not 100)
+- [x] Rate limiting set to 5 attempts 
 - [x] CSRF protection enabled
 - [x] Token rotation enabled
 - [x] HttpOnly cookies enabled
@@ -825,7 +825,7 @@ export async function refreshAccessToken(): Promise<boolean> {
 - [x] JWT_SECRET is 32+ characters (check .env)
 - [x] All OAuth credentials set (Google, GitHub)
 - [x] HTTPS enabled (required for secure cookies)
-- [ ] CORS configured for production domain
+- [x] CORS configured for production domain
 
 ### Environment Variables Required
 

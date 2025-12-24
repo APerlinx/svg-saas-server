@@ -3,7 +3,7 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
 
-// ✅ IMPORTANT: mocks must be declared BEFORE importing the router
+// IMPORTANT: mocks must be declared BEFORE importing the router
 jest.mock('../../../utils/refreshToken', () => ({
   verifyAndRotateRefreshToken: jest.fn(),
 }))
@@ -18,7 +18,7 @@ jest.mock('../../../utils/getUserIp', () => ({
 
 const { verifyAndRotateRefreshToken } = require('../../../utils/refreshToken')
 
-// ✅ Import router AFTER mocks
+//  Import router AFTER mocks
 import router from '../../auth.routes'
 
 const app = express()
