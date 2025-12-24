@@ -724,6 +724,7 @@ Same flow as Google callback
 - **Family Revocation:** All tokens from compromised session are invalidated
 - **Audit Trail:** `replacedByTokenId` creates chain showing token rotation history
 - **Race Condition Prevention:** Database transaction ensures atomic operations
+- **Security Logging:** Reuse detection logged with userId, IP, userAgent, familyId for incident response
 
 **Token Families Explained:**
 
@@ -774,7 +775,28 @@ All tokens created from the same login share a `familyId`. This allows the syste
 
 ---
 
-### 5. Token Cleanup Job
+### 5. Request Correlation
+
+**What:** Unique ID (`x-request-id`) for each request
+
+**Implementation:**
+
+- Middleware generates UUID if not provided by client
+- Added to response headers for client tracing
+- Included in all log entries via Pino
+- Linked to Sentry scope for error tracking
+- Returned in error responses
+
+**Benefits:**
+
+- Track requests across logs, errors, and monitoring
+- Debug production issues by following requestId
+- Link frontend errors to backend logs
+- Essential for distributed system observability
+
+---
+
+### 6. Token Cleanup Job
 
 **File:** `src/jobs/cleanupExpiredTokens.ts`
 
