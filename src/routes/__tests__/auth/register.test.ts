@@ -26,6 +26,14 @@ jest.mock('../../../utils/refreshToken')
 jest.mock('../../../utils/getUserIp')
 jest.mock('../../../utils/sanitizeInput')
 jest.mock('../../../utils/setAuthCookie')
+jest.mock('../../../lib/logger', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+  },
+}))
 jest.mock('../../../middleware/rateLimiter', () => ({
   authLimiter: (req: any, res: any, next: any) => next(),
   forgotPasswordLimiter: (req: any, res: any, next: any) => next(),

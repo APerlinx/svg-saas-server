@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import prisma from '../lib/prisma'
 import type { Prisma, RefreshToken } from '@prisma/client'
+import { logger } from '../lib/logger'
 
 type RotateResult =
   | { ok: true; userId: string; newPlainToken: string }
@@ -63,6 +64,16 @@ export const verifyAndRotateRefreshToken = async (
 
     // Reuse detection: token already revoked but someone is presenting it again
     if (tokenRecord.revokedAt) {
+      logger.warn(
+        {
+          userId: tokenRecord.userId,
+          familyId: tokenRecord.familyId,
+          ipAddress,
+          userAgent,
+        },
+        'Token reuse detected - revoking entire family'
+      )
+
       // Revoke the whole family
       await tx.refreshToken.updateMany({
         where: {

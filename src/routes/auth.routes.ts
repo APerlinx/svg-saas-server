@@ -262,8 +262,15 @@ router.post(
 
       if (!rotated.ok) {
         if (rotated.reason === 'REUSED') {
+          logger.error(
+            {
+              ip: getUserIp(req),
+              userAgent: req.headers['user-agent'],
+              requestId: req.requestId,
+            },
+            'SECURITY: Refresh token reuse detected - token family revoked'
+          )
           clearAuthCookie(res)
-          // log security incident
         }
         return res
           .status(401)
