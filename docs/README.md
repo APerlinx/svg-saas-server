@@ -35,7 +35,8 @@ A production-ready SaaS backend for generating SVG assets with enterprise-grade 
 ### Authentication & Security
 
 - ✅ Email/password authentication
-- ✅ OAuth 2.0 (Google & GitHub)
+- ✅ OAuth 2.0 (Google & GitHub) with email verification
+- ✅ Composite unique constraint prevents OAuth provider ID conflicts
 - ✅ Session persistence with refresh tokens
 - ✅ Multi-device session management
 - ✅ Per-session revocation (logout from specific devices)
@@ -284,14 +285,21 @@ server/
    - 3 attempts per 15 minutes (password reset)
    - IP-based tracking
 
-4. **Input Validation**
+4. **OAuth Security**
+
+   - Composite unique constraint on `provider` + `providerId`
+   - Email verification required (Google: strict, GitHub: on linking)
+   - State parameter with timestamp validation
+   - Prevents account hijacking via unverified emails
+
+5. **Input Validation**
 
    - Email format validation
    - Password strength requirements (8+ chars)
    - Input sanitization
    - Maximum length checks
 
-5. **Database Security**
+6. **Database Security**
    - Parameterized queries (SQL injection prevention)
    - Atomic transactions (race condition prevention)
    - Cascading deletes for data consistency
@@ -305,6 +313,7 @@ server/
 **User** - User accounts and authentication
 
 - Email/password or OAuth provider
+- Composite unique constraint on `provider` + `providerId`
 - Credits system for API usage
 - Terms acceptance tracking
 

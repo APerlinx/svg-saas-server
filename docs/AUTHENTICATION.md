@@ -659,8 +659,11 @@ model RefreshToken {
 
 **Account Linking:**
 
-- If email already exists: Links Google to existing account
-- If new email: Creates new user with OAuth provider
+- Uses composite unique key: `provider` + `providerId`
+- **Google:** Requires verified email for all operations
+- **GitHub:** Requires verified email only when linking to existing account
+- If email already exists and verified: Links OAuth to existing account
+- If new email: Creates new user with OAuth provider (even if unverified)
 
 ---
 
@@ -743,7 +746,35 @@ All tokens created from the same login share a `familyId`. This allows the syste
 
 ---
 
-### 4. Token Cleanup Job
+### 4. OAuth Security
+
+**Composite Unique Constraint:**
+
+- Schema uses `@@unique([provider, providerId])` instead of `@unique` on `providerId` alone
+- Prevents conflicts when different OAuth providers assign the same ID
+- Queries use composite key: `where: { provider_providerId: { provider: 'GOOGLE', providerId: googleId }}`
+
+**Email Verification Protection:**
+
+- **Google OAuth:** Requires verified email for all operations (strict)
+
+  - Google emails are always verified, safe to enforce
+  - Blocks any OAuth attempt with unverified email
+
+- **GitHub OAuth:** Lenient approach (better UX)
+  - Allows new account creation even if email unverified
+  - **Only blocks account linking** if email unverified
+  - Prevents attack: Attacker with unverified `victim@example.com` cannot hijack victim's existing account
+
+**State Parameter Protection:**
+
+- Stores `redirectUrl` and timestamp in base64-encoded state
+- Validates state on callback (CSRF protection)
+- State expires after 10 minutes
+
+---
+
+### 5. Token Cleanup Job
 
 **File:** `src/jobs/cleanupExpiredTokens.ts`
 
@@ -814,7 +845,7 @@ export async function refreshAccessToken(): Promise<boolean> {
 
 - [x] Access tokens expire in 15 minutes
 - [x] Refresh tokens expire in 7-30 days
-- [x] Rate limiting set to 5 attempts 
+- [x] Rate limiting set to 5 attempts
 - [x] CSRF protection enabled
 - [x] Token rotation enabled
 - [x] HttpOnly cookies enabled
