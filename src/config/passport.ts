@@ -28,10 +28,11 @@ passport.use(
         const email = profile.emails?.[0]?.value
         const name = profile.displayName
         const avatar = profile.photos?.[0]?.value
+        const emailVerified = profile.emails?.[0]?.verified
 
-        if (!email) {
-          logger.error({ googleId }, 'No email from Google profile')
-          return done(new Error('No email from Google'), false)
+        if (!email || !emailVerified) {
+          logger.error({ googleId }, 'Email not verified from Google')
+          return done(new Error('Email not verified'), false)
         }
 
         logger.debug({ googleId, email, name }, 'Google OAuth profile data')
@@ -142,6 +143,7 @@ passport.use(
       try {
         const githubId = profile.id
         const email = profile.emails?.[0]?.value
+        const emailVerified = profile.emails?.[0]?.verified
         const name = profile.displayName || profile.username
         const avatar = profile.photos?.[0]?.value
 
@@ -167,6 +169,19 @@ passport.use(
           })
 
           if (existingUser) {
+            if (!emailVerified) {
+              logger.error(
+                { githubId, email },
+                'Cannot link: GitHub email not verified'
+              )
+              return done(
+                new Error(
+                  'Please verify your email on GitHub to link accounts'
+                ),
+                false
+              )
+            }
+
             user = await prisma.user.update({
               where: { id: existingUser.id },
               data: {
