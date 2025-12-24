@@ -292,14 +292,22 @@ server/
    - State parameter with timestamp validation
    - Prevents account hijacking via unverified emails
 
-5. **Input Validation**
+5. **Observability & Incident Response**
+
+   - Request correlation via `x-request-id` header
+   - Structured logging with Pino (includes requestId)
+   - Sentry integration for error tracking
+   - Security incident logging (token reuse detection)
+   - Comprehensive audit trails
+
+6. **Input Validation**
 
    - Email format validation
    - Password strength requirements (8+ chars)
    - Input sanitization
    - Maximum length checks
 
-6. **Database Security**
+7. **Database Security**
    - Parameterized queries (SQL injection prevention)
    - Atomic transactions (race condition prevention)
    - Cascading deletes for data consistency
