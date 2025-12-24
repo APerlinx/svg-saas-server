@@ -24,9 +24,11 @@ A production-ready SaaS backend for generating SVG assets with enterprise-grade 
 
 ### DevOps & Quality
 
+- **Docker** + **Docker Compose** (containerized development environment)
 - **Jest** + **Supertest** (comprehensive auth route testing)
 - **Node-cron** (automated token cleanup jobs)
 - **Email service** (Resend API for transactional emails)
+- **GitHub Actions** (CI/CD with Docker build validation)
 
 ---
 
@@ -101,7 +103,13 @@ npm install
 
 ### 2. Environment Setup
 
-Create a `.env` file in the root directory:
+Copy the example environment file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` with your configuration:
 
 ```env
 # JWT Configuration
@@ -145,11 +153,38 @@ npm run seed
 
 ### 4. Run Development Server
 
+**Option A: Traditional Node.js (Recommended for development)**
+
 ```bash
 npm run dev
 ```
 
 Server will start on `http://localhost:4000`
+
+**Option B: Docker (Recommended for testing/team environments)**
+
+```bash
+# Start API + PostgreSQL containers
+docker-compose up --build
+
+# Or run in detached mode
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+
+# Stop containers
+docker-compose down
+```
+
+Server will start on `http://localhost:4000` with PostgreSQL on `localhost:5432`
+
+**Docker Benefits:**
+
+- ✅ Consistent environment across team
+- ✅ Includes PostgreSQL (no manual setup)
+- ✅ Matches production setup
+- ✅ Easy onboarding for new developers
 
 ---
 
@@ -225,8 +260,50 @@ server/
 ├── docs/
 │   ├── README.md                   # This file
 │   └── AUTHENTICATION.md           # Detailed auth docs
+├── Dockerfile                      # Multi-stage Docker build
+├── docker-compose.yml              # Local dev environment
+├── .env.example                    # Environment variable template
 └── jest.config.js                  # Test configuration
 ```
+
+---
+
+## 🐳 Docker
+
+### Quick Start with Docker
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Start all services (API + PostgreSQL)
+docker-compose up --build
+
+# Run in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (fresh start)
+docker-compose down -v
+```
+
+### Docker Architecture
+
+- **Multi-stage build** - Optimized image size (~50MB with Alpine)
+- **Non-root user** - Security hardened (runs as `nodejs` user)
+- **Health checks** - Container monitoring with `/api/health` and `/api/ready`
+- **Volume persistence** - Database data survives container restarts
+- **Auto-migrations** - Prisma migrations run on container startup
+
+### Available Endpoints
+
+- `http://localhost:4000/api/health` - Liveness check
+- `http://localhost:4000/api/ready` - Readiness check (tests DB connection)
 
 ---
 
@@ -308,9 +385,16 @@ server/
    - Maximum length checks
 
 7. **Database Security**
+
    - Parameterized queries (SQL injection prevention)
    - Atomic transactions (race condition prevention)
    - Cascading deletes for data consistency
+
+8. **Container Security**
+   - Non-root user in Docker containers
+   - Multi-stage builds (minimal attack surface)
+   - Health checks for monitoring
+   - Alpine-based images (small, secure base)
 
 ---
 
