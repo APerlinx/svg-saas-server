@@ -67,3 +67,13 @@ jobs:
 
       - name: Build (TypeScript)
         run: npm run build
+
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t svg-saas-server .
