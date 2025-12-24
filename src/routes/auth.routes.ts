@@ -73,7 +73,7 @@ router.post(
       }
       if (agreedToTerms !== true) {
         return res.status(400).json({
-          message:
+          error:
             'You must accept the Terms of Service and Privacy Policy to create an account',
         })
       }
@@ -114,6 +114,7 @@ router.post(
       )
 
       // Send welcome email
+      // TODO: Move welcome email sending to a background job (BullMQ) to keep OAuth flow non-blocking
       await sendWelcomeEmail(email, name)
 
       // Set both cookies

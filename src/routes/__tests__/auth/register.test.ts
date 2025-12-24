@@ -164,7 +164,7 @@ describe('POST /register', () => {
     })
 
     expect(response.status).toBe(400)
-    expect(response.body.message).toContain('Terms of Service')
+    expect(response.body.error).toContain('Terms of Service')
   })
 
   it('should return 400 if email already exists', async () => {
