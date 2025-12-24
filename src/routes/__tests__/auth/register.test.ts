@@ -26,6 +26,14 @@ jest.mock('../../../utils/refreshToken')
 jest.mock('../../../utils/getUserIp')
 jest.mock('../../../utils/sanitizeInput')
 jest.mock('../../../utils/setAuthCookie')
+jest.mock('../../../lib/logger', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+  },
+}))
 jest.mock('../../../middleware/rateLimiter', () => ({
   authLimiter: (req: any, res: any, next: any) => next(),
   forgotPasswordLimiter: (req: any, res: any, next: any) => next(),
@@ -164,7 +172,7 @@ describe('POST /register', () => {
     })
 
     expect(response.status).toBe(400)
-    expect(response.body.message).toContain('Terms of Service')
+    expect(response.body.error).toContain('Terms of Service')
   })
 
   it('should return 400 if email already exists', async () => {

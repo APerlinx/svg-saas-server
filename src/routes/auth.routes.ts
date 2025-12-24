@@ -73,7 +73,7 @@ router.post(
       }
       if (agreedToTerms !== true) {
         return res.status(400).json({
-          message:
+          error:
             'You must accept the Terms of Service and Privacy Policy to create an account',
         })
       }
@@ -114,6 +114,7 @@ router.post(
       )
 
       // Send welcome email
+      // TODO: Move welcome email sending to a background job (BullMQ) to keep OAuth flow non-blocking
       await sendWelcomeEmail(email, name)
 
       // Set both cookies
@@ -261,8 +262,15 @@ router.post(
 
       if (!rotated.ok) {
         if (rotated.reason === 'REUSED') {
+          logger.error(
+            {
+              ip: getUserIp(req),
+              userAgent: req.headers['user-agent'],
+              requestId: req.requestId,
+            },
+            'SECURITY: Refresh token reuse detected - token family revoked'
+          )
           clearAuthCookie(res)
-          // log security incident
         }
         return res
           .status(401)
