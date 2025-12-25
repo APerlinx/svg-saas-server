@@ -37,6 +37,9 @@ if (!RESEND_API_KEY) {
   throw new Error('RESEND_API_KEY must be defined in .env file')
 }
 
+// Redis Configuration
+export const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
+
 // Google OAuth - validate at startup
 export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 export const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
