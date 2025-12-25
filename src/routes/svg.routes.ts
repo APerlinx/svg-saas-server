@@ -11,6 +11,7 @@ import { sanitizeSvg } from '../utils/sanitizeSvg'
 import { dailyGenerationLimit } from '../middleware/dailyLimit'
 import { svgGenerationLimiter } from '../middleware/rateLimiter'
 import { logger } from '../lib/logger'
+import { cache } from '../lib/cache'
 
 const router = Router()
 
@@ -105,6 +106,11 @@ router.post(
           data: { credits: { decrement: 1 } },
         }),
       ])
+
+      // If this SVG is public, invalidate the hot public cache page
+      if (!isPrivate) {
+        await cache.del(cache.buildKey('public', 'page', 1, 'limit', 10))
+      }
       // Respond with generated SVG
       res.status(201).json({
         svgCode: cleanSvg,
@@ -169,34 +175,50 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
 
 router.get('/public', async (req: Request, res: Response) => {
   try {
-    // Pagination parameters
     const page = parseInt(req.query.page as string) || 1
     const limit = parseInt(req.query.limit as string) || 10
     const skip = (page - 1) * limit
+    const cacheKey = cache.buildKey('public', 'page', page, 'limit', limit)
 
-    // Get total count for pagination
-    const totalCount = await prisma.svgGeneration.count({
-      where: { privacy: false },
-    })
+    // Try to get from cache
+    const { publicGenerations, totalCount, totalPages, hasMore } =
+      await cache.getOrSetJson(
+        cacheKey,
+        async () => {
+          const totalCount = await prisma.svgGeneration.count({
+            where: { privacy: false },
+          })
 
-    const publicGenerations = await prisma.svgGeneration.findMany({
-      where: { privacy: false },
-      orderBy: { createdAt: 'desc' },
-      skip: skip,
-      take: limit,
-      select: {
-        id: true,
-        prompt: true,
-        style: true,
-        model: true,
-        privacy: true,
-        creditsUsed: true,
-        createdAt: true,
-      },
-    })
+          const totalPages = Math.ceil(totalCount / limit) || 0
+          const hasMore = page < totalPages
 
-    const totalPages = Math.ceil(totalCount / limit)
-    const hasMore = page < totalPages
+          const publicGenerations = await prisma.svgGeneration.findMany({
+            where: { privacy: false },
+            orderBy: { createdAt: 'desc' },
+            skip: skip,
+            take: limit,
+            select: {
+              id: true,
+              prompt: true,
+              style: true,
+              model: true,
+              privacy: true,
+              creditsUsed: true,
+              createdAt: true,
+            },
+          })
+
+          return {
+            publicGenerations,
+            totalCount,
+            totalPages,
+            hasMore,
+            page,
+            limit,
+          }
+        },
+        { ttlSeconds: 60 }
+      )
 
     res.json({
       publicGenerations,
