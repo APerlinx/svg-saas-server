@@ -2,20 +2,21 @@ import { logger } from './logger'
 import { redisClient } from './redis'
 
 export type CacheKey = string
-
 export interface CacheRedisClient {
-  isOpen?: boolean
-  get(key: string): Promise<string | null>
-  set(key: string, value: string, options?: { EX?: number }): Promise<unknown>
-  del(...keys: string[]): Promise<number>
+  isOpen?: boolean // true if connected, false if disconnected
+  get(key: string): Promise<string | null> // Get value by key (Redis GET command)
+  set(key: string, value: string, options?: { EX?: number }): Promise<unknown> // Set value with optional expiry in seconds (Redis SET command with EX option)
+  del(...keys: string[]): Promise<number> // Delete keys and return count deleted (Redis DEL command)
 }
 
+// Options you can pass when SETTING cache
 export interface CacheSetOptions {
-  ttlSeconds?: number
+  ttlSeconds?: number // ttl = Time to live
 }
 
+// Options for the getOrSetJson pattern
 export interface CacheGetOrSetOptions extends CacheSetOptions {
-  cacheNull?: boolean
+  cacheNull?: boolean // If true, we'll cache null values too (useful for "not found" caching)
 }
 
 export class RedisCache {
@@ -55,10 +56,12 @@ export class RedisCache {
     key: CacheKey
   ): Promise<{ hit: boolean; value: T | null }> {
     if (!this.canUseRedis()) return { hit: false, value: null }
+
     const redisKey = this.fullKey(key)
 
     try {
       const raw = await this.client.get(redisKey)
+
       if (raw === null) return { hit: false, value: null }
 
       return { hit: true, value: JSON.parse(raw) as T }
@@ -82,11 +85,13 @@ export class RedisCache {
     options?: CacheSetOptions
   ): Promise<void> {
     if (!this.canUseRedis()) return
+
     const redisKey = this.fullKey(key)
     const ttlSeconds = options?.ttlSeconds ?? this.defaultTtlSeconds
 
     try {
       const raw = JSON.stringify(value)
+
       if (ttlSeconds && ttlSeconds > 0) {
         await this.client.set(redisKey, raw, { EX: ttlSeconds })
       } else {
@@ -99,11 +104,14 @@ export class RedisCache {
 
   async del(keys: CacheKey | CacheKey[]): Promise<number> {
     if (!this.canUseRedis()) return 0
+
+    // Convert single key to array for consistency
     const arr = Array.isArray(keys) ? keys : [keys]
     if (arr.length === 0) return 0
 
     try {
       const full = arr.map((k) => this.fullKey(k))
+
       return await this.client.del(...full)
     } catch (error) {
       logger.debug({ error, keys: arr }, 'Cache del failed; ignoring')
@@ -117,6 +125,7 @@ export class RedisCache {
     options?: CacheGetOrSetOptions
   ): Promise<T> {
     const { hit, value: cached } = await this.getJsonWithHit<T>(key)
+
     if (hit) {
       logger.debug({ key: this.fullKey(key) }, 'Cache hit')
       return cached as T
@@ -124,6 +133,7 @@ export class RedisCache {
 
     logger.debug({ key: this.fullKey(key) }, 'Cache miss')
     const value = await fetcher()
+
     const cacheNull = options?.cacheNull ?? false
 
     if (value !== null || cacheNull) {
@@ -135,7 +145,7 @@ export class RedisCache {
 }
 
 export const cache = new RedisCache({
-  client: redisClient,
-  prefix: 'svg-saas:',
-  defaultTtlSeconds: 60,
+  client: redisClient, // The Redis client from redis.ts
+  prefix: 'svg-saas:', // All keys will start with "svg-saas:"
+  defaultTtlSeconds: 60, // Cache entries expire after 60 seconds by default
 })
