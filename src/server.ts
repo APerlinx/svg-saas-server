@@ -13,6 +13,12 @@ if (IS_PRODUCTION && process.env.SENTRY_DSN) {
 import app from './app'
 import { startScheduledJobs } from './jobs'
 import { logger } from './lib/logger'
+import { connectRedis } from './lib/redis'
+
+// Connect to Redis
+connectRedis().catch((err) => {
+  logger.error({ error: err }, 'Failed to connect to Redis on startup')
+})
 
 app.listen(PORT, () => {
   logger.info(`Server running at ${PORT}`)

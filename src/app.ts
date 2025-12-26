@@ -13,6 +13,7 @@ import { logger } from './lib/logger'
 import * as Sentry from '@sentry/node'
 import { requestIdMiddleware } from './middleware/requestId'
 import prisma from './lib/prisma'
+import { redisClient } from './lib/redis'
 
 const app = express()
 
@@ -67,19 +68,30 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ ok: true })
 })
 
-// Readiness check (database + future Redis connectivity)
+// Readiness check (database + Redis connectivity)
 app.get('/api/ready', async (req, res) => {
   try {
     // Check database connectivity
     await prisma.$queryRaw`SELECT 1`
 
-    // TODO: Add Redis check when implemented
-    // await redis.ping()
+    // Check Redis connectivity
+    let redisStatus = 'disconnected'
+    try {
+      if (redisClient.isReady) {
+        await redisClient.ping()
+        redisStatus = 'connected'
+      }
+    } catch (redisError) {
+      logger.warn(
+        { error: redisError },
+        'Redis check failed in readiness probe'
+      )
+    }
 
     res.status(200).json({
       ok: true,
       database: 'connected',
-      // redis: 'connected'
+      redis: redisStatus,
     })
   } catch (error) {
     logger.error({ error }, 'Readiness check failed')
