@@ -1,6 +1,6 @@
 import { createClient } from 'redis'
 import { logger } from './logger'
-import { REDIS_URL } from '../config/env'
+import { IS_TEST, REDIS_URL } from '../config/env'
 
 export const redisClient = createClient({
   url: REDIS_URL,
@@ -20,6 +20,10 @@ redisClient.on('ready', () => {
 
 // Connect to Redis
 export async function connectRedis() {
+  if (IS_TEST) {
+    logger.info('Skipping Redis connection in test mode')
+    return
+  }
   try {
     await redisClient.connect()
     logger.info('Redis connection established')
