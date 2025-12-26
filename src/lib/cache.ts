@@ -117,8 +117,12 @@ export class RedisCache {
     options?: CacheGetOrSetOptions
   ): Promise<T> {
     const { hit, value: cached } = await this.getJsonWithHit<T>(key)
-    if (hit) return cached as T
+    if (hit) {
+      logger.debug({ key: this.fullKey(key) }, 'Cache hit')
+      return cached as T
+    }
 
+    logger.debug({ key: this.fullKey(key) }, 'Cache miss')
     const value = await fetcher()
     const cacheNull = options?.cacheNull ?? false
 
