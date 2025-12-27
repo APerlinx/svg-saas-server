@@ -8,70 +8,73 @@ generator client {
 }
 
 model User {
-  id           String          @id @default(cuid())
-  email        String          @unique
-  passwordHash String?          // bcrypt hash
-  name         String?         
-  provider     AuthProvider    @default(EMAIL)
-  providerId   String?         
-  plan         Plan            @default(FREE)
-  credits      Int             @default(3)
-  avatar       String? 
+  id           String       @id @default(cuid())
+  email        String       @unique
+  passwordHash String? // bcrypt hash
+  name         String?
+  provider     AuthProvider @default(EMAIL)
+  providerId   String?
+  plan         Plan         @default(FREE)
+  credits      Int          @default(3)
+  avatar       String?
 
-  generations  SvgGeneration[]
-  refreshTokens RefreshToken[]
-  
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  generations    SvgGeneration[]
+  refreshTokens  RefreshToken[]
+  generationJobs GenerationJob[]
 
-  resetPasswordToken   String?   // hashed token
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  resetPasswordToken   String? // hashed token
   resetPasswordExpires DateTime?
 
-  termsAcceptedAt   DateTime? 
-  termsAcceptedIp   String?
+  termsAcceptedAt DateTime?
+  termsAcceptedIp String?
 
-  @@index([email])
   @@unique([provider, providerId])
+  @@index([email])
 }
 
 model SvgGeneration {
-  id         String   @id @default(cuid())
-  user       User     @relation(fields: [userId], references: [id])
-  userId     String
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
-  prompt     String
-  svg        String   // the actual SVG code
-  style      String?  // 'outline', 'duotone', etc.
-  model      String?  @default("gpt-4o")
-  creditsUsed  Int?     // optional
-  privacy    Boolean  @default(false)
-  
-  createdAt  DateTime @default(now())
+  prompt      String
+  svg         String // the actual SVG code
+  style       String? // 'outline', 'duotone', etc.
+  model       String? @default("gpt-4o")
+  creditsUsed Int? // optional
+  privacy     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  generationJob GenerationJob? @relation("JobToGeneration")
 
   @@index([userId, createdAt])
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // hashed token secret (never store plain token)
-  token     String   @unique
+  token String @unique
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Group tokens that belong to the same login/session chain.
   // When you detect reuse, revoke the entire family.
-  familyId  String   @default(cuid())
+  familyId String @default(cuid())
 
   // Rotation / revocation tracking
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
   lastUsedAt DateTime?
 
   revokedAt DateTime?
-  
-  replacedByTokenId String? @unique
+
+  replacedByTokenId String?       @unique
   replacedByToken   RefreshToken? @relation("TokenReplacement", fields: [replacedByTokenId], references: [id])
   replacesToken     RefreshToken? @relation("TokenReplacement")
 
@@ -84,6 +87,36 @@ model RefreshToken {
   @@index([revokedAt])
 }
 
+model GenerationJob {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  prompt String
+  style  String?
+  model  String  @default("gpt-4o")
+
+  status GenerationJobStatus @default(QUEUED)
+
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  errorCode    String?
+  errorMessage String?
+
+  // Idempotency: optional header from client to prevent double submits
+  idempotencyKey String?
+
+  generationId String?        @unique
+  generation   SvgGeneration? @relation("JobToGeneration", fields: [generationId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([userId, status])
+}
 
 enum Plan {
   FREE
@@ -92,7 +125,14 @@ enum Plan {
 }
 
 enum AuthProvider {
-  EMAIL    // Traditional email/password
-  GOOGLE   // Google OAuth
-  GITHUB   // GitHub OAuth
+  EMAIL // Traditional email/password
+  GOOGLE // Google OAuth
+  GITHUB // GitHub OAuth
+}
+
+enum GenerationJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
 }
