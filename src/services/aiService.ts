@@ -1,6 +1,84 @@
 import { openai } from '../lib/openai'
 import { IS_TEST } from '../config/env'
 
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+
+const ALLOWED_TAGS = new Set([
+  'svg',
+  'g',
+  'path',
+  'rect',
+  'circle',
+  'line',
+  'polygon',
+])
+
+function extractSingleSvg(content: string): string {
+  const trimmed = content.trim()
+  const svgStart = trimmed.indexOf('<svg')
+  const svgEnd = trimmed.lastIndexOf('</svg>')
+
+  if (svgStart === -1 || svgEnd === -1) {
+    throw new Error('Generated content is not a valid SVG element')
+  }
+
+  return trimmed.slice(svgStart, svgEnd + 6)
+}
+
+function validateSvg(svg: string): string[] {
+  const errors: string[] = []
+
+  if (!svg.includes('viewBox="0 0 256 256"')) {
+    errors.push('Missing required viewBox="0 0 256 256"')
+  }
+
+  // Disallow obviously unsafe/unwanted tags (defense in depth)
+  const forbidden = [
+    'script',
+    'style',
+    'foreignObject',
+    'image',
+    'text',
+    'iframe',
+    'object',
+    'embed',
+  ]
+  for (const tag of forbidden) {
+    const re = new RegExp(`<\\s*${tag}\\b`, 'i')
+    if (re.test(svg)) errors.push(`Forbidden tag <${tag}> found`)
+  }
+
+  // Ensure only allowed tags appear
+  // Captures tag names from "<tag" and "</tag"
+  const tagRegex = /<\s*\/?\s*([a-zA-Z0-9:_-]+)\b/g
+  const seen = new Set<string>()
+  let match: RegExpExecArray | null
+
+  while ((match = tagRegex.exec(svg))) {
+    const rawName = match[1]
+    const name = rawName.toLowerCase()
+
+    // ignore xml declarations / doctype if any slip in
+    if (name === '?xml' || name === '!doctype') continue
+
+    // treat namespaced tags as not allowed (shouldn’t happen)
+    if (name.includes(':')) {
+      errors.push(`Namespaced tag <${rawName}> is not allowed`)
+      continue
+    }
+
+    seen.add(name)
+    if (!ALLOWED_TAGS.has(name)) {
+      errors.push(`Tag <${rawName}> is not allowed`)
+    }
+  }
+
+  // Must contain at least <svg>
+  if (!seen.has('svg')) errors.push('Missing <svg> root element')
+
+  return errors
+}
+
 export async function generateSvg(
   prompt: string,
   style: string,
@@ -15,13 +93,10 @@ export async function generateSvg(
 
   const resolvedModel = model || 'gpt-4o'
 
-  const response = await openai.chat.completions.create({
-    model: resolvedModel,
-    temperature: 0.1,
-    messages: [
-      {
-        role: 'system',
-        content: `You are a deterministic SVG icon generator for a professional design tool.
+  const baseMessages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: `You are a deterministic SVG icon generator for a professional design tool.
 
 You MUST respond with ONLY A SINGLE <svg>...</svg> ELEMENT.
 - No explanations.
@@ -40,16 +115,16 @@ STRICT REQUIREMENTS:
 6. Avoid randomness between calls: similar prompts should produce similar structure.
 7. Never include comments or CDATA.
 8. Do NOT inline CSS or use <style>. Use basic attributes like fill, stroke, stroke-width, etc.`,
-      },
+    },
 
-      // --- FEW-SHOT EXAMPLE 1 ---
-      {
-        role: 'user',
-        content: `Generate a minimal SVG for: "code window with angle brackets" in "outline" style.`,
-      },
-      {
-        role: 'assistant',
-        content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+    // --- FEW-SHOT EXAMPLE 1 ---
+    {
+      role: 'user',
+      content: `Generate a minimal SVG for: "code window with angle brackets" in "outline" style.`,
+    },
+    {
+      role: 'assistant',
+      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <g fill="none" stroke="#111111" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
     <rect x="32" y="40" width="192" height="176" rx="16" ry="16" />
     <line x1="32" y1="80" x2="224" y2="80" />
@@ -61,16 +136,16 @@ STRICT REQUIREMENTS:
     <line x1="124" y1="120" x2="132" y2="168" />
   </g>
 </svg>`,
-      },
+    },
 
-      // --- FEW-SHOT EXAMPLE 2 ---
-      {
-        role: 'user',
-        content: `Generate a minimal SVG for: "lightbulb idea icon" in "flat filled" style.`,
-      },
-      {
-        role: 'assistant',
-        content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+    // --- FEW-SHOT EXAMPLE 2 ---
+    {
+      role: 'user',
+      content: `Generate a minimal SVG for: "lightbulb idea icon" in "flat filled" style.`,
+    },
+    {
+      role: 'assistant',
+      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <g fill="#111111">
     <path d="M128 32c-40 0-72 29.4-72 68 0 21.6 9.2 38.5 25 52.6 7.2 6.4 11 14.9 11 24v4h72v-4c0-9.1 3.8-17.6 11-24 15.8-14.1 25-31 25-52.6 0-38.6-32-68-72-68z"/>
     <rect x="100" y="188" width="56" height="20" rx="6" ry="6" />
@@ -82,16 +157,16 @@ STRICT REQUIREMENTS:
     <line x1="128" y1="32" x2="128" y2="16" />
   </g>
 </svg>`,
-      },
+    },
 
-      // --- FEW-SHOT EXAMPLE 3 ---
-      {
-        role: 'user',
-        content: `Generate a minimal SVG for: "isometric cube logo" in "geometric" style.`,
-      },
-      {
-        role: 'assistant',
-        content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+    // --- FEW-SHOT EXAMPLE 3 ---
+    {
+      role: 'user',
+      content: `Generate a minimal SVG for: "isometric cube logo" in "geometric" style.`,
+    },
+    {
+      role: 'assistant',
+      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <g fill="none" stroke="#111111" stroke-width="10" stroke-linejoin="round">
     <polygon points="128 32 56 72 56 152 128 192 200 152 200 72" />
     <polygon points="128 32 56 72 128 112 200 72" />
@@ -99,34 +174,56 @@ STRICT REQUIREMENTS:
     <polygon points="200 72 200 152 128 192 128 112" />
   </g>
 </svg>`,
-      },
+    },
 
-      // --- REAL USER REQUEST ---
-      {
-        role: 'user',
-        content: `Generate a professional, well-balanced SVG icon for:
+    // --- REAL USER REQUEST ---
+    {
+      role: 'user',
+      content: `Generate a professional, well-balanced SVG icon for:
 
 Prompt: "${prompt}"
 Style: "${style}"
 
 Focus on clear shapes, good visual hierarchy, and clean geometry.
 Use a neutral color palette (black/white/gray) unless explicit colors are requested.`,
-      },
-    ],
-  })
+    },
+  ]
 
-  const content = response.choices[0].message?.content
-  if (!content) {
-    throw new Error('No SVG code generated')
+  const callModel = async (messages: ChatMessage[]) => {
+    const response = await openai.chat.completions.create({
+      model: resolvedModel,
+      messages,
+    })
+    const content = response.choices[0].message?.content
+    if (!content) throw new Error('No SVG code generated')
+    return extractSingleSvg(content)
   }
 
-  const trimmed = content.trim()
-  const svgStart = trimmed.indexOf('<svg')
-  const svgEnd = trimmed.lastIndexOf('</svg>')
+  // Attempt 1
+  let svg = await callModel(baseMessages)
+  let errors = validateSvg(svg)
 
-  if (svgStart === -1 || svgEnd === -1) {
-    throw new Error('Generated content is not a valid SVG element')
+  if (errors.length === 0) return svg
+
+  // Attempt 2: repair once
+  const repairMessage: ChatMessage = {
+    role: 'user',
+    content: `Your previous SVG did not pass validation:
+
+${errors.map((e) => `- ${e}`).join('\n')}
+
+Return a corrected SINGLE <svg>...</svg> only, following the tag allowlist and required viewBox.
+
+Previous SVG:
+${svg}`,
   }
 
-  return trimmed.slice(svgStart, svgEnd + 6)
+  svg = await callModel([...baseMessages, repairMessage])
+  errors = validateSvg(svg)
+
+  if (errors.length > 0) {
+    throw new Error(`Generated SVG failed validation: ${errors.join('; ')}`)
+  }
+
+  return svg
 }
