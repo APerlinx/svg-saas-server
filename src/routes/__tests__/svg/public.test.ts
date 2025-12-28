@@ -8,6 +8,14 @@ jest.mock('../../../lib/prisma', () => ({
   },
 }))
 
+jest.mock('../../../jobs/svgGenerationQueue', () => ({
+  __esModule: true,
+  enqueueSvgGenerationJob: jest.fn(),
+  svgGenerationQueue: {
+    getJobCounts: jest.fn(),
+  },
+}))
+
 jest.mock('../../../lib/cache', () => ({
   cache: {
     getOrSetJson: jest.fn(),

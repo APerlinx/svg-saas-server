@@ -2,7 +2,7 @@
 
 # chatSVG - Backend
 
-A production-ready SaaS backend for generating SVG assets with enterprise-grade authentication, session management, and security-first token handling. Built with modern best practices including refresh token rotation, reuse detection, CSRF protection, and comprehensive test coverage.
+A production-ready SaaS backend for generating SVG assets with enterprise-grade authentication, session management, and asynchronous job processing. Built with modern best practices including BullMQ queues, refresh token rotation, reuse detection, CSRF protection, and comprehensive test coverage.
 
 ## 🚀 Tech Stack
 
@@ -10,7 +10,9 @@ A production-ready SaaS backend for generating SVG assets with enterprise-grade 
 
 - **Node.js** + **Express** + **TypeScript**
 - **PostgreSQL** (Neon hosted database)
+- **Redis** (Upstash for BullMQ and caching)
 - **Prisma ORM** (type-safe database client)
+- **BullMQ** (async job queue for SVG generation)
 - **Passport.js** (OAuth strategies for Google & GitHub)
 
 ### Security & Authentication
@@ -27,12 +29,23 @@ A production-ready SaaS backend for generating SVG assets with enterprise-grade 
 - **Docker** + **Docker Compose** (containerized development environment)
 - **Jest** + **Supertest** (comprehensive auth route testing)
 - **Node-cron** (automated token cleanup jobs)
+- **BullMQ** (Redis-backed job queue with retry logic)
 - **Email service** (Resend API for transactional emails)
 - **GitHub Actions** (CI/CD with Docker build validation)
 
 ---
 
 ## ✨ Key Features
+
+### Async SVG Generation Pipeline
+
+- ✅ Non-blocking job queue (BullMQ + Redis)
+- ✅ Automatic retries with exponential backoff
+- ✅ Idempotent job creation (duplicate prevention)
+- ✅ Atomic credit charging and refunding
+- ✅ Real-time status polling
+- ✅ Horizontal worker scaling
+- ✅ Queue depth observability
 
 ### Authentication & Security
 
@@ -118,6 +131,11 @@ JWT_SECRET=your_long_random_secret_32_chars_minimum
 # Database
 DATABASE_URL=postgresql://user:password@host:5432/database
 
+# Redis (for BullMQ and caching)
+REDIS_URL=redis://localhost:6379
+# Or for Upstash (TLS):
+# REDIS_URL=rediss://default:password@host:port
+
 # Frontend URL
 FRONTEND_URL=http://localhost:5173
 
@@ -131,8 +149,14 @@ GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_REDIRECT_URI=http://localhost:4000/api/auth/github/callback
 
+# OpenAI (for SVG generation)
+OPENAI_API_KEY=your_openai_api_key
+
 # Email Service (Resend)
 RESEND_API_KEY=your_resend_api_key
+
+# Worker Configuration
+SVG_WORKER_CONCURRENCY=2
 
 # Environment
 NODE_ENV=development
@@ -153,15 +177,22 @@ npm run seed
 
 ### 4. Run Development Server
 
-**Option A: Traditional Node.js (Recommended for development)**
+**Option A: Local Development (API + Worker)**
 
 ```bash
+# Terminal 1: Start Redis + Postgres
+docker compose up -d redis db
+
+# Terminal 2: Start API
 npm run dev
+
+# Terminal 3: Start worker
+npm run worker:dev
 ```
 
 Server will start on `http://localhost:4000`
 
-**Option B: Docker (Recommended for testing/team environments)**
+**Option B: Full Docker (API + Worker + PostgreSQL + Redis)**
 
 ```bash
 # Start API + PostgreSQL containers
@@ -182,9 +213,11 @@ Server will start on `http://localhost:4000` with PostgreSQL on `localhost:5432`
 **Docker Benefits:**
 
 - ✅ Consistent environment across team
-- ✅ Includes PostgreSQL (no manual setup)
+- ✅ Includes PostgreSQL + Redis (no manual setup)
 - ✅ Matches production setup
 - ✅ Easy onboarding for new developers
+
+**Important:** For async SVG generation to work, you must run both the API server and the worker. See [Async Generation docs](./ASYNC_GENERATION.md) for details.
 
 ---
 
@@ -249,9 +282,14 @@ server/
 │   │   └── emailService.ts         # Email sending
 │   ├── jobs/
 │   │   ├── cleanupExpiredTokens.ts # Token cleanup cron
-│   │   └── index.ts                # Job scheduler
+│   │   ├── index.ts                # Job scheduler
+│   │   └── svgGenerationQueue.ts   # BullMQ queue + scheduler
 │   ├── lib/
-│   │   └── prisma.ts               # Database client
+│   │   ├── bullmq.ts               # Shared BullMQ connection helper
+│   │   ├── prisma.ts               # Database client
+│   │   └── redis.ts                # Redis client wrapper
+│   ├── workers/
+│   │   └── svgGenerationWorker.ts  # Queue worker entry point
 │   ├── app.ts                      # Express app setup
 │   └── server.ts                   # Server entry point
 ├── prisma/
@@ -333,8 +371,70 @@ docker-compose down -v
 
 ### SVG Generation
 
-- `POST /api/svg/generate` - Generate SVG from prompt
+- `POST /api/svg/generate-svg` - Enqueue an SVG generation job
+- `GET /api/svg/generation-jobs/:id` - Poll job status (Queued → Running → Succeeded/Failed)
 - `GET /api/svg/history` - Get generation history
+- `GET /api/svg/public` - Browse public gallery
+- `GET /api/svg/:id` - Get specific SVG by ID
+
+**See [ASYNC_GENERATION.md](./ASYNC_GENERATION.md) for complete async pipeline documentation.**
+
+---
+
+## ⚙️ Async SVG Generation Pipeline
+
+SVG creation runs through a BullMQ queue so the API never blocks on OpenAI latency.
+
+### How it Works
+
+1. **POST `/api/svg/generate-svg`**
+
+   - Validates prompt, style, and model
+   - Creates a `GenerationJob` record (status: `QUEUED`)
+   - Enqueues job to Redis via BullMQ
+   - Returns `202 Accepted` with job ID
+
+2. **Worker processes job**
+
+   - Claims job atomically (status: `RUNNING`)
+   - Charges 1 credit (transactional, idempotent)
+   - Calls OpenAI API to generate SVG
+   - Sanitizes and stores result
+   - Updates job (status: `SUCCEEDED`)
+
+3. **GET `/api/svg/generation-jobs/:id`**
+   - Client polls for status updates
+   - Returns current status + result when done
+   - Includes updated credits balance on completion
+
+### Running Locally
+
+```bash
+# Start Redis (required)
+docker compose up -d redis
+
+# Terminal 1: API server
+npm run dev
+
+# Terminal 2: Queue worker
+npm run worker:dev
+```
+
+### Production Deployment
+
+Deploy the API and worker as **separate services** (same codebase, different entry points):
+
+- **API:** `npm run start` → runs `dist/server.js`
+- **Worker:** `npm run worker` → runs `dist/workers/svgGenerationWorker.js`
+
+Both need access to the same `DATABASE_URL` and `REDIS_URL`.
+
+**Scaling:**
+
+- Horizontal: Run multiple worker instances (BullMQ distributes jobs)
+- Vertical: Increase `SVG_WORKER_CONCURRENCY` per worker
+
+**📖 Full Documentation:** See [`ASYNC_GENERATION.md`](./ASYNC_GENERATION.md) for architecture, idempotency, credits flow, and troubleshooting.
 
 ---
 
@@ -422,7 +522,15 @@ docker-compose down -v
 - Credit usage logging
 - Privacy controls
 
-See [`schema.prisma`](../prisma/schema.prisma) for complete schema.
+**GenerationJob** - Async job tracking
+
+- Job status: `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`
+- Idempotency key support
+- Request hash for parameter validation
+- Atomic credit charging/refunding flags
+- Retry metadata (attempts, timestamps)
+
+See [`schema.prisma`](../prisma/schema.prisma) for complete schema and [`ASYNC_GENERATION.md`](./ASYNC_GENERATION.md) for job lifecycle details.
 
 ---
 
@@ -442,12 +550,23 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema.
 - [ ] Enable rate limiting
 - [ ] Configure email service
 - [ ] Set up OAuth redirect URIs for production domain
+- [ ] Provision managed Redis (Upstash, Render, AWS ElastiCache)
+- [ ] Deploy worker service separately from API
+- [ ] Configure `SVG_WORKER_CONCURRENCY` based on load
+- [ ] Set up health checks for both API and worker
 
 ### Recommended Hosting
 
 - **Backend:** Railway, Render, Fly.io, or AWS
 - **Database:** Neon, Supabase, or AWS RDS
+- **Redis:** Upstash (recommended), Render Redis, or AWS ElastiCache
 - **Email:** Resend, SendGrid, or AWS SES
+
+**Worker Deployment:**
+
+- Same codebase as API, different start command (`npm run worker`)
+- Can scale independently (1 API + N workers)
+- Requires access to same Redis and database
 
 ---
 

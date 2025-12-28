@@ -1,17 +1,21 @@
 import { Router, Request, Response } from 'express'
+import { Prisma } from '@prisma/client'
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth'
-import { checkCreditsMiddleware } from '../middleware/checkCredits'
 import prisma from '../lib/prisma'
-import { generateSvg } from '../services/aiService'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
 import { getUserId, requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
-import { sanitizeSvg } from '../utils/sanitizeSvg'
+import { computeRequestHash } from '../utils/computeRequestHash'
 import { dailyGenerationLimit } from '../middleware/dailyLimit'
 import { svgGenerationLimiter } from '../middleware/rateLimiter'
 import { logger } from '../lib/logger'
 import { cache } from '../lib/cache'
+import { IS_PRODUCTION } from '../config/env'
+import {
+  enqueueSvgGenerationJob,
+  svgGenerationQueue,
+} from '../jobs/svgGenerationQueue'
 
 const router = Router()
 
@@ -22,18 +26,89 @@ interface GenerateSvgBody {
   privacy?: boolean
 }
 
+const generationJobSelect = Prisma.validator<Prisma.GenerationJobSelect>()({
+  id: true,
+  userId: true,
+  prompt: true,
+  style: true,
+  model: true,
+  privacy: true,
+  status: true,
+  createdAt: true,
+  startedAt: true,
+  finishedAt: true,
+  errorCode: true,
+  errorMessage: true,
+  generationId: true,
+  requestHash: true,
+  generation: {
+    select: {
+      id: true,
+      prompt: true,
+      style: true,
+      model: true,
+      privacy: true,
+      svg: true,
+      createdAt: true,
+    },
+  },
+})
+
+type GenerationJobWithGeneration = Prisma.GenerationJobGetPayload<{
+  select: typeof generationJobSelect
+}>
+
+function getDuplicateStatus(job: GenerationJobWithGeneration) {
+  return job.status === 'SUCCEEDED' || job.status === 'FAILED' ? 200 : 202
+}
+
+function formatGenerationJobResponse(job: GenerationJobWithGeneration) {
+  return {
+    id: job.id,
+    status: job.status,
+    prompt: job.prompt,
+    style: job.style,
+    model: job.model,
+    privacy: job.privacy,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    errorCode: job.errorCode,
+    errorMessage: job.errorMessage,
+    generationId: job.generationId,
+    generation: job.generation
+      ? {
+          id: job.generation.id,
+          prompt: job.generation.prompt,
+          style: job.generation.style,
+          model: job.generation.model,
+          privacy: job.generation.privacy,
+          svg: job.generation.svg,
+          createdAt: job.generation.createdAt,
+        }
+      : null,
+  }
+}
+
 router.post(
   '/generate-svg',
   authMiddleware,
   svgGenerationLimiter,
-  checkCreditsMiddleware,
   dailyGenerationLimit(50),
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
       const { prompt, style, model, privacy } = req.body
       const userId = requireUserId(req)
 
-      // Validate and sanitize prompt
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      })
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' })
+      }
+
       if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' })
       }
@@ -42,8 +117,8 @@ router.post(
           error: 'Prompt length must be between 10 and 500 characters',
         })
       }
-      const sanitizedPrompt = sanitizeInput(prompt) // Basic sanitization
-      // Forbidden patterns
+      const sanitizedPrompt = sanitizeInput(prompt)
+
       const forbiddenPatterns = [
         /\<script/i,
         /javascript:/i,
@@ -65,7 +140,6 @@ router.post(
         }
       }
 
-      // Validate style
       if (!style || !VALID_SVG_STYLES.includes(style as SvgStyle)) {
         return res.status(400).json({
           error: `Invalid style. Must be one of: ${VALID_SVG_STYLES.join(
@@ -74,7 +148,6 @@ router.post(
         })
       }
 
-      // Validate model
       if (model && !VALID_MODELS.includes(model as AiModel)) {
         return res.status(400).json({
           error: `Invalid model. Must be one of: ${VALID_MODELS.join(', ')}`,
@@ -83,41 +156,173 @@ router.post(
       const selectedModel = model || DEFAULT_MODEL
       const isPrivate = privacy ?? false
 
-      // # Generate SVG #
-      const rawSvg = await generateSvg(sanitizedPrompt, style, selectedModel)
-      const cleanSvg = sanitizeSvg(rawSvg)
+      const rawIdempotencyKey = req.header('x-idempotency-key')?.trim()
+      if (rawIdempotencyKey && rawIdempotencyKey.length > 128) {
+        return res
+          .status(400)
+          .json({ error: 'Idempotency key must be 128 characters or fewer' })
+      }
 
-      const creditsUsed = 1
-      // Store SVG generation and decrement user credits in a transaction
-      const [, updatedUser] = await prisma.$transaction([
-        prisma.svgGeneration.create({
+      const requestHash = computeRequestHash({
+        prompt: sanitizedPrompt,
+        style,
+        model: selectedModel,
+        privacy: isPrivate,
+      })
+
+      if (rawIdempotencyKey) {
+        const existingJob = await prisma.generationJob.findFirst({
+          where: {
+            userId,
+            idempotencyKey: rawIdempotencyKey,
+          },
+          select: generationJobSelect,
+        })
+
+        if (existingJob) {
+          if (existingJob.requestHash === requestHash) {
+            return res
+              .status(getDuplicateStatus(existingJob))
+              .location(`/api/svg/generation-jobs/${existingJob.id}`)
+              .json({
+                job: formatGenerationJobResponse(existingJob),
+                duplicate: true,
+              })
+          } else {
+            return res.status(409).json({
+              error: 'Request already in progress',
+            })
+          }
+        }
+      }
+
+      let generationJob: GenerationJobWithGeneration
+
+      try {
+        generationJob = await prisma.generationJob.create({
           data: {
             userId,
-            prompt,
-            svg: cleanSvg,
+            prompt: sanitizedPrompt,
             style,
-            creditsUsed,
             model: selectedModel,
             privacy: isPrivate,
+            idempotencyKey: rawIdempotencyKey ?? null,
+            requestHash,
           },
-        }),
-        prisma.user.update({
-          where: { id: userId },
-          data: { credits: { decrement: 1 } },
-        }),
-      ])
+          select: generationJobSelect,
+        })
+      } catch (createError) {
+        const isUniqueConstraintViolation =
+          rawIdempotencyKey &&
+          createError instanceof Prisma.PrismaClientKnownRequestError &&
+          createError.code === 'P2002'
 
-      // If this SVG is public, invalidate the hot public cache page
-      if (!isPrivate) {
-        await cache.del(cache.buildKey('public', 'page', 1, 'limit', 10))
+        if (isUniqueConstraintViolation) {
+          const conflictingJob = await prisma.generationJob.findFirst({
+            where: {
+              userId,
+              idempotencyKey: rawIdempotencyKey,
+            },
+            select: generationJobSelect,
+          })
+
+          if (conflictingJob) {
+            if (conflictingJob.requestHash === requestHash) {
+              return res
+                .status(getDuplicateStatus(conflictingJob))
+                .location(`/api/svg/generation-jobs/${conflictingJob.id}`)
+                .json({
+                  job: formatGenerationJobResponse(conflictingJob),
+                  duplicate: true,
+                })
+            }
+
+            return res.status(409).json({
+              error:
+                'Idempotency key already used with different request parameters',
+            })
+          }
+        }
+
+        throw createError
       }
-      // Respond with generated SVG
-      res.status(201).json({
-        svgCode: cleanSvg,
-        credits: updatedUser.credits,
-      })
+
+      await enqueueSvgGenerationJob(generationJob.id)
+
+      let jobCounts:
+        | Awaited<ReturnType<typeof svgGenerationQueue.getJobCounts>>
+        | undefined
+
+      if (!IS_PRODUCTION) {
+        jobCounts = await svgGenerationQueue.getJobCounts(
+          'waiting',
+          'delayed',
+          'active'
+        )
+      }
+
+      const responsePayload = {
+        job: formatGenerationJobResponse(generationJob),
+        ...(jobCounts ? { queue: jobCounts } : {}),
+      }
+
+      res
+        .status(202)
+        .location(`/api/svg/generation-jobs/${generationJob.id}`)
+        .json(responsePayload)
     } catch (error) {
       logger.error({ error, userId: getUserId(req) }, 'SVG Generation error')
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
+
+router.get(
+  '/generation-jobs/:id',
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params
+      const userId = requireUserId(req)
+
+      const generationJob = await prisma.generationJob.findFirst({
+        where: {
+          id,
+          userId,
+        },
+        select: generationJobSelect,
+      })
+
+      if (!generationJob) {
+        return res.status(404).json({ error: 'Generation job not found' })
+      }
+
+      const responsePayload: {
+        job: ReturnType<typeof formatGenerationJobResponse>
+        credits?: number | null
+      } = {
+        job: formatGenerationJobResponse(generationJob),
+      }
+
+      const isTerminal =
+        generationJob.status === 'SUCCEEDED' ||
+        generationJob.status === 'FAILED'
+
+      if (isTerminal) {
+        const user = await prisma.user.findUnique({
+          where: { id: generationJob.userId },
+          select: { credits: true },
+        })
+
+        responsePayload.credits = user?.credits ?? null
+      }
+
+      res.json(responsePayload)
+    } catch (error) {
+      logger.error(
+        { error, jobId: req.params.id, userId: getUserId(req) },
+        'Error fetching generation job'
+      )
       res.status(500).json({ error: 'Internal server error' })
     }
   }
@@ -127,12 +332,10 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = requireUserId(req)
 
-    // Pagination parameters
     const page = parseInt(req.query.page as string) || 1
     const limit = parseInt(req.query.limit as string) || 10
     const skip = (page - 1) * limit
 
-    // Get total count for pagination
     const totalCount = await prisma.svgGeneration.count({ where: { userId } })
 
     const generations = await prisma.svgGeneration.findMany({
@@ -180,7 +383,6 @@ router.get('/public', async (req: Request, res: Response) => {
     const skip = (page - 1) * limit
     const cacheKey = cache.buildKey('public', 'page', page, 'limit', limit)
 
-    // Try to get from cache
     const { publicGenerations, totalCount, totalPages, hasMore } =
       await cache.getOrSetJson(
         cacheKey,
@@ -242,17 +444,14 @@ router.get(
         return res.status(400).json({ error: 'Invalid SVG ID' })
       }
 
-      // Fetch the SVG first
       const svgGeneration = await prisma.svgGeneration.findUnique({
         where: { id },
       })
 
-      // Check if exists
       if (!svgGeneration) {
         return res.status(404).json({ error: 'SVG not found' })
       }
 
-      // Authorization check
       const isPublic = svgGeneration.privacy === false
       const isOwner = currentUserId === svgGeneration.userId
 
