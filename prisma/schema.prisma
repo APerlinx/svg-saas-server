@@ -96,18 +96,25 @@ model GenerationJob {
   prompt String
   style  String?
   model  String  @default("gpt-4o")
+  privacy Boolean @default(false)
 
   status GenerationJobStatus @default(QUEUED)
 
-  createdAt  DateTime  @default(now())
-  startedAt  DateTime?
-  finishedAt DateTime?
+  createdAt     DateTime  @default(now())
+  startedAt     DateTime?
+  lastStartedAt DateTime?
+  finishedAt    DateTime?
 
-  errorCode    String?
-  errorMessage String?
+  errorCode       String?
+  errorMessage    String?
+  creditsCharged  Boolean   @default(false)
+  creditsRefunded Boolean   @default(false)
+  attemptsMade    Int       @default(0)
+  lastFailedAt    DateTime?
 
   // Idempotency: optional header from client to prevent double submits
   idempotencyKey String?
+  requestHash    String? // Hash of request params to detect key reuse with different params
 
   generationId String?        @unique
   generation   SvgGeneration? @relation("JobToGeneration", fields: [generationId], references: [id])

@@ -13,3 +13,5 @@ export const VALID_SVG_STYLES = [
 ] as const
 
 export type SvgStyle = (typeof VALID_SVG_STYLES)[number]
+
+export const DEFAULT_STYLE: SvgStyle = 'outline'

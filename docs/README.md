@@ -249,9 +249,14 @@ server/
 │   │   └── emailService.ts         # Email sending
 │   ├── jobs/
 │   │   ├── cleanupExpiredTokens.ts # Token cleanup cron
-│   │   └── index.ts                # Job scheduler
+│   │   ├── index.ts                # Job scheduler
+│   │   └── svgGenerationQueue.ts   # BullMQ queue + scheduler
 │   ├── lib/
-│   │   └── prisma.ts               # Database client
+│   │   ├── bullmq.ts               # Shared BullMQ connection helper
+│   │   ├── prisma.ts               # Database client
+│   │   └── redis.ts                # Redis client wrapper
+│   ├── workers/
+│   │   └── svgGenerationWorker.ts  # Queue worker entry point
 │   ├── app.ts                      # Express app setup
 │   └── server.ts                   # Server entry point
 ├── prisma/
@@ -333,8 +338,48 @@ docker-compose down -v
 
 ### SVG Generation
 
-- `POST /api/svg/generate` - Generate SVG from prompt
+- `POST /api/svg/generate-svg` - Enqueue an SVG generation job
+- `GET /api/svg/generation-jobs/:id` - Poll job status (Queued → Running → Succeeded/Failed)
 - `GET /api/svg/history` - Get generation history
+- `GET /api/svg/public` - Browse public gallery
+
+---
+
+## ⚙️ Async SVG Generation Pipeline
+
+SVG creation now runs through a BullMQ queue so the API never blocks on OpenAI latency.
+
+1. **Create job** – `POST /api/svg/generate-svg`
+   - Validates the prompt, style, and model.
+   - Ensures you have spare credits (pending jobs count toward the limit).
+   - Inserts a `GenerationJob` row (`QUEUED`) and enqueues the job in Redis.
+   - Returns `202` with `Location: /api/svg/generation-jobs/:id` and queue depth metrics.
+2. **Poll status** – `GET /api/svg/generation-jobs/:id`
+   - Authenticated endpoint that shows the current status plus the SVG once it is ready.
+3. **Worker** – `src/workers/svgGenerationWorker.ts`
+   - Consumes jobs from Redis, atomically charges credits, calls OpenAI, sanitizes SVG, stores it, and invalidates the `/public` cache.
+
+### Running the worker locally
+
+```bash
+# Redis (Docker recommended)
+docker compose up redis -d
+
+# API
+npm run dev
+
+# Queue worker
+npm run worker:dev
+```
+
+### Deploying the worker (Render / Fly / Railway)
+
+1. Provision a managed Redis instance (Upstash, Render Redis, etc.) and set `REDIS_URL`.
+2. Deploy the API service as usual (`npm run start`).
+3. Deploy a second service/worker that runs `npm run worker` with the same codebase and env vars.
+4. Tune throughput with `SVG_WORKER_CONCURRENCY` (default `2`).
+
+> **Tip:** Upstash only requires the `rediss://` URL for BullMQ. No REST token is needed unless you use the HTTP API.
 
 ---
 

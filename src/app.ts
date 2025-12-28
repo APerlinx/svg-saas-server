@@ -34,26 +34,21 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-idempotency-key'],
   })
 )
 
 app.use(express.json())
 app.use(cookieParser())
-
-// Add request ID tracking
 app.use(requestIdMiddleware)
 
-// Add CSRF token generation middleware
 app.use((req, res, next) => {
   if (req.path === '/health') return next()
   return generateCsrfToken(req, res, next)
 })
 
-// Initialize Passport middleware
 app.use(passport.initialize())
 
-// Attach pino HTTP logger with requestId
 app.use(
   pinoHttp({
     logger,
@@ -63,18 +58,14 @@ app.use(
   })
 )
 
-// Health check endpoint (simple liveness check)
 app.get('/api/health', (req, res) => {
   res.status(200).json({ ok: true })
 })
 
-// Readiness check (database + Redis connectivity)
 app.get('/api/ready', async (req, res) => {
   try {
-    // Check database connectivity
     await prisma.$queryRaw`SELECT 1`
 
-    // Check Redis connectivity
     let redisStatus = 'disconnected'
     try {
       if (redisClient.isReady) {
@@ -105,19 +96,14 @@ app.get('/api/ready', async (req, res) => {
 
 app.use('/api', apiLimiter)
 
-// CSRF token endpoint
 app.get('/api/csrf', (req, res) => {
   res.json({ csrfToken: req.cookies['csrf-token'] })
 })
 
-//Auth
 app.use('/api/auth', authRoutes)
-// users
 app.use('/api/user', validateCsrfToken, userRoutes)
-// SVG generation
 app.use('/api/svg', validateCsrfToken, svgRoutes)
 
-// Generic error handler
 app.use(
   (
     err: any,

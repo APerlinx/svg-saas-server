@@ -1,19 +1,21 @@
 jest.mock('../../../lib/prisma', () => ({
   __esModule: true,
   default: {
-    $transaction: jest.fn(),
+    generationJob: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
     user: {
       findUnique: jest.fn(),
-      update: jest.fn(),
-    },
-    svgGeneration: {
-      create: jest.fn(),
     },
   },
 }))
-jest.mock('../../../services/aiService', () => ({
+jest.mock('../../../jobs/svgGenerationQueue', () => ({
   __esModule: true,
-  generateSvg: jest.fn(),
+  enqueueSvgGenerationJob: jest.fn(),
+  svgGenerationQueue: {
+    getJobCounts: jest.fn(),
+  },
 }))
 jest.mock('../../../middleware/auth', () => ({
   __esModule: true,
@@ -25,10 +27,6 @@ jest.mock('../../../middleware/auth', () => ({
   svgGenerationLimiter: (req: any, res: any, next: any) => next(),
   dailyGenerationLimit: () => (req: any, res: any, next: any) => next(),
 }))
-jest.mock('../../../middleware/checkCredits', () => ({
-  __esModule: true,
-  checkCreditsMiddleware: (req: any, res: any, next: any) => next(),
-}))
 jest.mock('../../../utils/getUserId', () => ({
   __esModule: true,
   requireUserId: (req: any) => req.user.id,
@@ -38,21 +36,48 @@ jest.mock('../../../utils/sanitizeInput', () => ({
   __esModule: true,
   sanitizeInput: (input: string) => input,
 }))
-jest.mock('../../../utils/sanitizeSvg', () => ({
-  __esModule: true,
-  sanitizeSvg: (svg: string) => svg,
-}))
 
 import request from 'supertest'
 import express from 'express'
 import prisma from '../../../lib/prisma'
-import { generateSvg } from '../../../services/aiService'
 import { VALID_SVG_STYLES } from '../../../constants/svgStyles'
 import { DEFAULT_MODEL } from '../../../constants/models'
-import { checkCreditsMiddleware } from '../../../middleware/checkCredits'
+import { computeRequestHash } from '../../../utils/computeRequestHash'
 import { authMiddleware } from '../../../middleware/auth'
+import {
+  enqueueSvgGenerationJob,
+  svgGenerationQueue,
+} from '../../../jobs/svgGenerationQueue'
 
 let app: express.Express
+const basePrompt = 'A valid prompt for SVG generation'
+const baseStyle = VALID_SVG_STYLES[0]
+const baseModel = DEFAULT_MODEL
+const basePrivacy = false
+const baseRequestHash = computeRequestHash({
+  prompt: basePrompt,
+  style: baseStyle,
+  model: baseModel,
+  privacy: basePrivacy,
+})
+
+const baseJob = {
+  id: 'job-123',
+  userId: 'user1',
+  prompt: basePrompt,
+  style: baseStyle,
+  model: baseModel,
+  privacy: basePrivacy,
+  status: 'QUEUED',
+  createdAt: new Date('2025-12-25T00:00:00.000Z'),
+  startedAt: null,
+  finishedAt: null,
+  errorCode: null,
+  errorMessage: null,
+  generationId: null,
+  generation: null,
+  requestHash: baseRequestHash,
+}
 
 beforeAll(async () => {
   const routerModule = await import('../../svg.routes')
@@ -66,6 +91,16 @@ beforeAll(async () => {
 describe('POST /generate-svg', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(svgGenerationQueue.getJobCounts as jest.Mock).mockResolvedValue({
+      waiting: 0,
+      delayed: 0,
+      active: 0,
+    })
+    ;(prisma.generationJob.create as jest.Mock).mockResolvedValue({
+      ...baseJob,
+    })
+    ;(prisma.generationJob.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user1' })
   })
 
   it('should return 400 if prompt is missing', async () => {
@@ -110,27 +145,90 @@ describe('POST /generate-svg', () => {
     expect(res.body.error).toMatch(/Invalid model/)
   })
 
-  it('should generate SVG and return 201 with svgCode', async () => {
-    ;(generateSvg as jest.Mock).mockResolvedValue('<svg>test</svg>')
-    ;(prisma.$transaction as jest.Mock).mockResolvedValue([{}, {}])
-
+  it('should enqueue a generation job and return 202 with queue metadata', async () => {
     const res = await request(app).post('/api/svg/generate-svg').send({
-      prompt: 'A valid prompt for SVG generation',
-      style: VALID_SVG_STYLES[0],
+      prompt: basePrompt,
+      style: baseStyle,
     })
 
-    expect(res.status).toBe(201)
-    expect(res.body.svgCode).toBe('<svg>test</svg>')
-    expect(generateSvg).toHaveBeenCalledWith(
-      'A valid prompt for SVG generation',
-      VALID_SVG_STYLES[0],
-      DEFAULT_MODEL
-    )
-    expect(prisma.$transaction).toHaveBeenCalled()
+    expect(res.status).toBe(202)
+    expect(res.body.job.id).toBe('job-123')
+    expect(prisma.generationJob.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user1',
+        prompt: basePrompt,
+        style: baseStyle,
+        model: baseModel,
+        privacy: basePrivacy,
+        idempotencyKey: null,
+        requestHash: expect.any(String),
+      },
+      select: expect.objectContaining({
+        id: true,
+        userId: true,
+        prompt: true,
+        style: true,
+        model: true,
+        privacy: true,
+        status: true,
+        requestHash: true,
+        generation: expect.objectContaining({
+          select: expect.objectContaining({
+            id: true,
+            prompt: true,
+            style: true,
+            model: true,
+            svg: true,
+            privacy: true,
+            createdAt: true,
+          }),
+        }),
+      }),
+    })
+    expect(enqueueSvgGenerationJob).toHaveBeenCalledWith('job-123')
+    expect(svgGenerationQueue.getJobCounts).toHaveBeenCalled()
+    expect(res.headers.location).toContain('/api/svg/generation-jobs/job-123')
+  })
+
+  it('should reuse an existing job when idempotency key matches', async () => {
+    ;(prisma.generationJob.findFirst as jest.Mock).mockResolvedValue({
+      ...baseJob,
+      id: 'job-existing',
+    })
+
+    const res = await request(app)
+      .post('/api/svg/generate-svg')
+      .set('x-idempotency-key', '1234')
+      .send({
+        prompt: basePrompt,
+        style: baseStyle,
+      })
+
+    expect(res.status).toBe(202)
+    expect(res.body.job.id).toBe('job-existing')
+    expect(prisma.generationJob.create).not.toHaveBeenCalled()
+    expect(enqueueSvgGenerationJob).not.toHaveBeenCalled()
+  })
+
+  it('should reject overly long idempotency keys', async () => {
+    const longKey = 'x'.repeat(129)
+    const res = await request(app)
+      .post('/api/svg/generate-svg')
+      .set('x-idempotency-key', longKey)
+      .send({
+        prompt: 'A valid prompt for SVG generation',
+        style: VALID_SVG_STYLES[0],
+      })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/Idempotency key/i)
+    expect(prisma.generationJob.create).not.toHaveBeenCalled()
   })
 
   it('should handle internal server error', async () => {
-    ;(generateSvg as jest.Mock).mockRejectedValue(new Error('AI error'))
+    ;(prisma.generationJob.create as jest.Mock).mockRejectedValue(
+      new Error('DB error')
+    )
 
     const res = await request(app).post('/api/svg/generate-svg').send({
       prompt: 'A valid prompt for SVG generation',
