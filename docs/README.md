@@ -388,12 +388,14 @@ SVG creation runs through a BullMQ queue so the API never blocks on OpenAI laten
 ### How it Works
 
 1. **POST `/api/svg/generate-svg`**
+
    - Validates prompt, style, and model
    - Creates a `GenerationJob` record (status: `QUEUED`)
    - Enqueues job to Redis via BullMQ
    - Returns `202 Accepted` with job ID
 
 2. **Worker processes job**
+
    - Claims job atomically (status: `RUNNING`)
    - Charges 1 credit (transactional, idempotent)
    - Calls OpenAI API to generate SVG
@@ -428,6 +430,7 @@ Deploy the API and worker as **separate services** (same codebase, different ent
 Both need access to the same `DATABASE_URL` and `REDIS_URL`.
 
 **Scaling:**
+
 - Horizontal: Run multiple worker instances (BullMQ distributes jobs)
 - Vertical: Increase `SVG_WORKER_CONCURRENCY` per worker
 
@@ -560,6 +563,7 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema and [`ASYNC_G
 - **Email:** Resend, SendGrid, or AWS SES
 
 **Worker Deployment:**
+
 - Same codebase as API, different start command (`npm run worker`)
 - Can scale independently (1 API + N workers)
 - Requires access to same Redis and database
