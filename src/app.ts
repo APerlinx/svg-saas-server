@@ -97,7 +97,8 @@ app.get('/api/ready', async (req, res) => {
 app.use('/api', apiLimiter)
 
 app.get('/api/csrf', (req, res) => {
-  res.json({ csrfToken: req.cookies['csrf-token'] })
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ csrfToken: req.cookies['csrf-token'] ?? (req as any).csrfToken })
 })
 
 app.use('/api/auth', authRoutes)
