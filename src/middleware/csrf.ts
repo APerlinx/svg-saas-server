@@ -28,6 +28,9 @@ export const generateCsrfToken = (
     path: '/', // Available on all routes
   })
 
+  req.cookies['csrf-token'] = csrfToken
+  ;(req as any).csrfToken = csrfToken
+
   next()
 }
 
