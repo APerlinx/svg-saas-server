@@ -14,6 +14,7 @@ const concurrency = Number(process.env.SVG_WORKER_CONCURRENCY ?? 2)
 
 interface SvgGenerationJobData {
   jobId: string
+  userId: string
 }
 
 function mapErrorToCode(error: unknown): { code: string; message: string } {
@@ -79,6 +80,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
       }
 
       try {
+        await job.updateProgress(5)
         const jobRecord = await prisma.generationJob.findUnique({
           where: { id: jobId },
           select: {
@@ -133,6 +135,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         }
 
         if (!jobRecord.creditsCharged) {
+          await job.updateProgress(10)
           const result = await prisma.$transaction(async (tx) => {
             const debitResult = await tx.user.updateMany({
               where: { id: jobRecord.userId, credits: { gt: 0 } },
@@ -165,12 +168,15 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           }
         }
 
+        await job.updateProgress(25)
         const svg = await generateSvg(
           jobRecord.prompt,
           jobRecord.style ?? DEFAULT_STYLE,
           jobRecord.model
         )
+        await job.updateProgress(75)
         const cleanSvg = sanitizeSvg(svg)
+        await job.updateProgress(85)
 
         await prisma.$transaction(async (tx) => {
           const generation = await tx.svgGeneration.create({
@@ -194,6 +200,8 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
             },
           })
         })
+
+        await job.updateProgress(100)
 
         if (!jobRecord.privacy) {
           try {

@@ -60,6 +60,7 @@ services:
       GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       FRONTEND_PREVIEW_REGEX: ${FRONTEND_PREVIEW_REGEX:-}
+      SOCKET_IO_REDIS_ADAPTER: 'true'
       PORT: 4000
     ports:
       - '4000:4000'

@@ -247,7 +247,7 @@ router.post(
         throw createError
       }
 
-      await enqueueSvgGenerationJob(generationJob.id)
+      await enqueueSvgGenerationJob(generationJob.id, userId)
 
       let jobCounts:
         | Awaited<ReturnType<typeof svgGenerationQueue.getJobCounts>>
