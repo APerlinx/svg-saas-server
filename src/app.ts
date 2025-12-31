@@ -14,6 +14,7 @@ import * as Sentry from '@sentry/node'
 import { requestIdMiddleware } from './middleware/requestId'
 import prisma from './lib/prisma'
 import { redisClient } from './lib/redis'
+import { INSTANCE_ID } from './lib/instanceId'
 
 const app = express()
 
@@ -41,6 +42,10 @@ app.use(
 app.use(express.json())
 app.use(cookieParser())
 app.use(requestIdMiddleware)
+app.use((req, res, next) => {
+  res.setHeader('x-instance-id', INSTANCE_ID)
+  next()
+})
 
 app.use((req, res, next) => {
   if (req.path === '/health') return next()

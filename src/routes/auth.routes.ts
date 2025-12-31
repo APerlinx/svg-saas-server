@@ -41,6 +41,7 @@ import {
   revokeRefreshToken,
   verifyAndRotateRefreshToken,
 } from '../utils/refreshToken'
+import { tryGetIO } from '../realtime/io'
 
 const router = Router()
 
@@ -214,6 +215,12 @@ router.post(
   authMiddleware,
   async (req: Request, res: Response) => {
     try {
+      // Disconnect all sockets for this user
+      const userId = getUserId(req)
+      if (userId) {
+        tryGetIO()?.to(`user:${userId}`).disconnectSockets(true)
+      }
+
       const refreshToken = req.cookies.refreshToken
 
       // Revoke refresh token from database
