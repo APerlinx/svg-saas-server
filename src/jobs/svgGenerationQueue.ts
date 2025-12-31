@@ -23,16 +23,17 @@ const queueConnection = createBullMqConnection('svg-generation-queue')
 
 export const svgGenerationQueue = new Queue<{
   jobId: string
+  userId: string
 }>(SVG_GENERATION_QUEUE_NAME, {
   connection: queueConnection,
   defaultJobOptions,
 })
 
-export async function enqueueSvgGenerationJob(jobId: string) {
+export async function enqueueSvgGenerationJob(jobId: string, userId: string) {
   try {
     await svgGenerationQueue.add(
       'generate-svg',
-      { jobId },
+      { jobId, userId },
       {
         jobId,
       }

@@ -185,7 +185,7 @@ describe('POST /generate-svg', () => {
         }),
       }),
     })
-    expect(enqueueSvgGenerationJob).toHaveBeenCalledWith('job-123')
+    expect(enqueueSvgGenerationJob).toHaveBeenCalledWith('job-123', 'user1')
     expect(svgGenerationQueue.getJobCounts).toHaveBeenCalled()
     expect(res.headers.location).toContain('/api/svg/generation-jobs/job-123')
   })

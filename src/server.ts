@@ -11,6 +11,7 @@ import * as Sentry from '@sentry/node'
 import { createServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
 import { initIO } from './realtime/io'
+import { startGenerationJobRealtimeEvents } from './realtime/generationJobEvents'
 import jwt from 'jsonwebtoken'
 import type { JwtPayload } from './types/express'
 import { createAdapter } from '@socket.io/redis-adapter'
@@ -137,6 +138,7 @@ io.on('connection', (socket) => {
 async function main() {
   await enableSocketIoRedisAdapter(io)
   initIO(io)
+  await startGenerationJobRealtimeEvents(io)
 
   httpServer.listen(PORT, () => {
     logger.info(`Server running at ${PORT}`)
