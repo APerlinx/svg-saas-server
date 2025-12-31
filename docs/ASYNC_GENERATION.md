@@ -12,34 +12,31 @@ SVG generation now runs asynchronously through a **BullMQ** queue, decoupling th
 ┌─────────┐      POST /generate-svg       ┌─────────┐
 │ Client  │ ──────────────────────────────▶│   API   │
 └─────────┘                                 └─────────┘
-     │                                           │
-     │  202 Accepted                             │ 1. Validate input
-     │  job: { id, status: "QUEUED" }            │ 2. Create GenerationJob
-     │  Location: /generation-jobs/:id           │ 3. Enqueue to Redis
-     │                                           │
-     │◀─────────────────────────────────────────┘
-     │
-     │      GET /generation-jobs/:id         ┌─────────┐
-     │ ─────────────────────────────────────▶│   API   │
-     │  { job: { status: "RUNNING" } }       └─────────┘
-     │◀─────────────────────────────────────┘
-     │
-     │                                       ┌──────────┐
-     │                                       │  Worker  │◀──Redis Queue
-     │                                       └──────────┘
-     │                                            │
-     │                                            │ 1. Claim job
-     │                                            │ 2. Charge credits
-     │                                            │ 3. Generate SVG
-     │                                            │ 4. Store result
-     │                                            │ 5. Mark SUCCEEDED
-     │
-     │      GET /generation-jobs/:id
-     │ ─────────────────────────────────────▶
-     │  { job: { status: "SUCCEEDED",
-     │           generation: {...} },
-     │    credits: 95 }
-     │◀─────────────────────────────────────┘
+  │                                           │
+  │  202 Accepted                             │ 1. Validate input
+  │  job: { id, status: "QUEUED" }            │ 2. Create GenerationJob
+  │                                           │ 3. Enqueue to Redis
+  │◀─────────────────────────────────────────┘
+  │
+  │      Socket.IO: generation-job:update
+  │◀───────────────────────────────────────────────
+  │   { jobId, status, progress?, generationId? }
+  │
+  │      GET /generation-jobs/:id (optional)
+  │ ─────────────────────────────────────▶
+  │  { job: { status: "SUCCEEDED", ... },
+  │    credits: 95 }
+  │◀─────────────────────────────────────┘
+  │
+  │                                       ┌──────────┐
+  │                                       │  Worker  │◀──Redis Queue
+  │                                       └──────────┘
+  │                                            │
+  │                                            │ 1. Claim job
+  │                                            │ 2. Charge credits
+  │                                            │ 3. Generate SVG
+  │                                            │ 4. Store result
+  │                                            │ 5. Mark SUCCEEDED
 ```
 
 ---
@@ -56,10 +53,12 @@ SVG generation now runs asynchronously through a **BullMQ** queue, decoupling th
 **Key function:**
 
 ```ts
-enqueueSvgGenerationJob(jobId: string)
+enqueueSvgGenerationJob(jobId: string, userId: string)
 ```
 
 Enqueues a job or silently ignores if the job already exists (prevents duplicates during retries or race conditions).
+
+The BullMQ job data includes `jobId` and `userId` so realtime status updates can be routed to the correct user.
 
 ### 2. Worker (`src/workers/svgGenerationWorker.ts`)
 
@@ -221,6 +220,22 @@ Processes jobs from the queue with the following steps:
 - Only returned when job is in a terminal state (`SUCCEEDED` or `FAILED`)
 - Reflects the user's remaining credits after the job completed
 - Frontend can update the balance immediately without a separate API call
+
+### Realtime Updates (Socket.IO)
+
+The API emits job state changes over Socket.IO so the client does not need to poll.
+
+- Event: `generation-job:update`
+- Payload: `{ jobId, status, progress?, generationId?, errorCode?, errorMessage? }`
+- Delivery: server joins the socket to `user:<userId>` during the authenticated handshake and emits updates to that room
+
+Recommended client flow:
+
+1. `POST /api/svg/generate-svg` → get `job.id`
+2. Listen for `generation-job:update` for that `jobId`
+3. On terminal status, do one `GET /api/svg/generation-jobs/:id` to fetch the full record (SVG, credits, etc.)
+
+**Multi-instance:** enable the Socket.IO Redis adapter with `SOCKET_IO_REDIS_ADAPTER=true` (defaults to enabled in production unless explicitly set to `false`).
 
 ---
 
@@ -430,11 +445,12 @@ const counts = await svgGenerationQueue.getJobCounts(
 ### Authorization
 
 - All endpoints require `authMiddleware` (JWT validation)
-- Job polling checks `userId` ownership
+- All job reads validate `userId` ownership
 
 ### Queue Security
 
-- BullMQ jobs only store `jobId` (no sensitive data in Redis)
+- BullMQ job data stores `{ jobId, userId }` for routing realtime updates
+- Prompts, SVG content, and credit balances remain in the database
 - Worker validates job ownership via database
 
 ---
@@ -449,7 +465,7 @@ const counts = await svgGenerationQueue.getJobCounts(
 ### Integration Tests
 
 1. Create job → verify `QUEUED` status
-2. Start worker → poll until `SUCCEEDED`
+2. Start worker → wait for `SUCCEEDED` (Socket.IO update or `GET /generation-jobs/:id`)
 3. Verify credits debited
 4. Test idempotency (same key = same job)
 5. Test failure refunds
@@ -490,7 +506,6 @@ const counts = await svgGenerationQueue.getJobCounts(
 
 - [ ] Priority queue (premium users get faster processing)
 - [ ] Batch job support (generate multiple SVGs in one request)
-- [ ] Job progress updates (streaming status via WebSocket)
 - [ ] Admin dashboard (BullMQ UI for monitoring)
 - [ ] Cost tracking (per-model pricing)
 
