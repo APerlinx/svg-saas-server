@@ -43,7 +43,7 @@ A production-ready SaaS backend for generating SVG assets with enterprise-grade 
 - ✅ Automatic retries with exponential backoff
 - ✅ Idempotent job creation (duplicate prevention)
 - ✅ Atomic credit charging and refunding
-- ✅ Real-time status polling
+- ✅ Real-time status updates (Socket.IO)
 - ✅ Horizontal worker scaling
 - ✅ Queue depth observability
 
@@ -372,7 +372,7 @@ docker-compose down -v
 ### SVG Generation
 
 - `POST /api/svg/generate-svg` - Enqueue an SVG generation job
-- `GET /api/svg/generation-jobs/:id` - Poll job status (Queued → Running → Succeeded/Failed)
+- `GET /api/svg/generation-jobs/:id` - Get current job status/result (also used as a fallback if realtime is unavailable)
 - `GET /api/svg/history` - Get generation history
 - `GET /api/svg/public` - Browse public gallery
 - `GET /api/svg/:id` - Get specific SVG by ID
@@ -403,9 +403,22 @@ SVG creation runs through a BullMQ queue so the API never blocks on OpenAI laten
    - Updates job (status: `SUCCEEDED`)
 
 3. **GET `/api/svg/generation-jobs/:id`**
-   - Client polls for status updates
-   - Returns current status + result when done
+   - Client can fetch the latest status/result at any time
    - Includes updated credits balance on completion
+
+### Realtime Updates (Socket.IO)
+
+After enqueueing a job, the server emits `generation-job:update` events to the authenticated user's room.
+
+- Event: `generation-job:update`
+- Payload: `{ jobId, status, progress?, generationId?, errorCode?, errorMessage? }`
+- Auth: uses the `token` HttpOnly cookie during the Socket.IO handshake (no extra client-side “join room” step)
+
+The recommended flow is:
+
+1. `POST /api/svg/generate-svg` → get `job.id`
+2. Listen for `generation-job:update` for that `jobId`
+3. On terminal status (`SUCCEEDED`/`FAILED`), do one `GET /api/svg/generation-jobs/:id` to fetch the full record (SVG, credits, etc.)
 
 ### Running Locally
 
