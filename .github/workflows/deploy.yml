@@ -1,0 +1,81 @@
+name: Build + Deploy (API + Worker)
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'server/**'
+      - '.github/workflows/deploy.yml'
+
+concurrency:
+  group: chatsvg-deploy-main
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-north-1
+  NAMESPACE: chatsvg
+  ECR_API: 692829982886.dkr.ecr.eu-north-1.amazonaws.com/chatsvg-api
+  ECR_WORKER: 692829982886.dkr.ecr.eu-north-1.amazonaws.com/chatsvg-worker
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push API
+        working-directory: server
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          docker build -t "$ECR_API:$TAG" .
+          docker push "$ECR_API:$TAG"
+
+      - name: Build & push Worker
+        working-directory: server
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          docker build -t "$ECR_WORKER:$TAG" .
+          docker push "$ECR_WORKER:$TAG"
+
+  deploy:
+    needs: build_and_push
+    runs-on: [self-hosted, deploy]
+
+    env:
+      TAG: ${{ needs.build_and_push.outputs.tag }}
+      DEPLOY_API: chatsvg-api
+      DEPLOY_WORKER: chatsvg-worker
+      CONTAINER_API: api
+      CONTAINER_WORKER: worker
+
+    steps:
+      - name: Deploy API + Worker
+        run: |
+          kubectl -n "$NAMESPACE" set image "deploy/$DEPLOY_API" \
+            "$CONTAINER_API=$ECR_API:$TAG"
+          kubectl -n "$NAMESPACE" set image "deploy/$DEPLOY_WORKER" \
+            "$CONTAINER_WORKER=$ECR_WORKER:$TAG"
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n "$NAMESPACE" rollout status "deploy/$DEPLOY_API" --timeout=180s
+          kubectl -n "$NAMESPACE" rollout status "deploy/$DEPLOY_WORKER" --timeout=180s
+
+      - name: Post-deploy health checks
+        run: |
+          curl -fsS https://api.chatsvg.dev/api/health
+          curl -fsS https://api.chatsvg.dev/api/ready
