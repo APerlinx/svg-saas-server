@@ -29,7 +29,7 @@ if (IS_PRODUCTION && process.env.SENTRY_DSN) {
 import app from './app'
 import { startScheduledJobs } from './jobs'
 import { logger } from './lib/logger'
-import { connectRedis } from './lib/redis'
+import { connectRedis, disconnectRedis } from './lib/redis'
 import { INSTANCE_ID } from './lib/instanceId'
 
 // Connect to Redis
@@ -76,17 +76,57 @@ async function enableSocketIoRedisAdapter(io: SocketIOServer) {
   }
 }
 
+const previewOriginRegex = process.env.FRONTEND_PREVIEW_REGEX
+  ? new RegExp(process.env.FRONTEND_PREVIEW_REGEX)
+  : null
+
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: (origin, cb) => {
       if (!origin) return cb(null, true)
       if (origin === FRONTEND_URL) return cb(null, true)
-      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true)
+      if (previewOriginRegex?.test(origin)) return cb(null, true)
       return cb(new Error('Not allowed by CORS'))
     },
     credentials: true,
   },
 })
+
+setupGracefulShutdown()
+
+function setupGracefulShutdown() {
+  let isShuttingDown = false
+  const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT']
+
+  const closeSockets = () =>
+    new Promise<void>((resolve) => {
+      io.close(() => resolve())
+    })
+
+  const closeHttpServer = () =>
+    new Promise<void>((resolve, reject) => {
+      httpServer.close((err) => (err ? reject(err) : resolve()))
+    })
+
+  const handleShutdown = async (signal: NodeJS.Signals) => {
+    if (isShuttingDown) return
+    isShuttingDown = true
+    logger.info({ signal }, 'Shutdown signal received, closing gracefully')
+
+    try {
+      await closeSockets()
+      await closeHttpServer()
+      await disconnectRedis()
+      logger.info('Shutdown complete')
+      process.exit(0)
+    } catch (error) {
+      logger.error({ error }, 'Error during graceful shutdown')
+      process.exit(1)
+    }
+  }
+
+  signals.forEach((signal) => process.on(signal, handleShutdown))
+}
 
 function parseCookieHeader(header: string | undefined): Record<string, string> {
   if (!header) return {}

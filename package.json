@@ -13,7 +13,7 @@
     "start": "cross-env NODE_ENV=production node dist/server.js",
     "worker:dev": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only src/workers/svgGenerationWorker.ts",
     "worker:test": "cross-env NODE_ENV=test ts-node-dev src/workers/svgGenerationWorker.ts",
-    "worker": "cross-env NODE_ENV=production node dist/workers/svgGenerationWorker.js",
+    "worker": "node dist/workers/svgGenerationWorker.js",
     "seed:test": "cross-env NODE_ENV=test ts-node ./prisma/seed-test.ts",
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
