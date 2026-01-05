@@ -18,26 +18,25 @@ import { INSTANCE_ID } from './lib/instanceId'
 
 const app = express()
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.FRONTEND_PREVIEW_REGEX,
-].filter(Boolean)
+const previewOriginRegex = process.env.FRONTEND_PREVIEW_REGEX
+  ? new RegExp(process.env.FRONTEND_PREVIEW_REGEX)
+  : null
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true)
-      if (origin === process.env.FRONTEND_URL) return cb(null, true)
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true)
+    if (origin === process.env.FRONTEND_URL) return cb(null, true)
+    if (previewOriginRegex?.test(origin)) return cb(null, true)
 
-      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true)
+    return cb(new Error('Not allowed by CORS'))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-idempotency-key'],
+}
 
-      return cb(new Error('Not allowed by CORS'))
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-idempotency-key'],
-  })
-)
+app.use(cors(corsOptions))
+app.options(/^.*$/, cors(corsOptions))
 
 app.use(express.json())
 app.use(cookieParser())
