@@ -62,6 +62,12 @@ jobs:
       CONTAINER_WORKER: worker
 
     steps:
+      - name: Deploy
+        run: |
+          export KUBECONFIG=/home/actions/.kube/config
+          kubectl -n "$NAMESPACE" get pods
+          kubectl -n "$NAMESPACE" rollout status "deploy/$DEPLOY_API"
+
       - name: Deploy API + Worker
         run: |
           kubectl -n "$NAMESPACE" set image "deploy/$DEPLOY_API" \
