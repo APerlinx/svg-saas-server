@@ -64,6 +64,9 @@ export const S3_BUCKET = process.env.S3_BUCKET
 export const S3_SIGNED_URL_TTL = process.env.S3_SIGNED_URL_TTL
   ? parseInt(process.env.S3_SIGNED_URL_TTL, 10)
   : 60 // default to 60 seconds
-if (!AWS_REGION || !S3_BUCKET) {
-  throw new Error('AWS_REGION and S3_BUCKET must be defined in .env file')
+if (IS_PRODUCTION && (!AWS_REGION || !S3_BUCKET)) {
+  throw new Error(
+    'AWS_REGION and S3_BUCKET must be defined in .env file for production'
+  )
 }
+export const IS_S3_ENABLED = !!(AWS_REGION && S3_BUCKET)
