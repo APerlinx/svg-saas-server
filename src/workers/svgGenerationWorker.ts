@@ -9,6 +9,7 @@ import { cache } from '../lib/cache'
 import { GenerationJobStatus } from '@prisma/client'
 import { connectRedis } from '../lib/redis'
 import { DEFAULT_STYLE } from '../constants/svgStyles'
+import { buildGenerationSvgKey, uploadSvg } from '../lib/s3'
 
 const concurrency = Number(process.env.SVG_WORKER_CONCURRENCY ?? 2)
 
@@ -189,6 +190,20 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
               model: jobRecord.model,
               privacy: jobRecord.privacy,
             },
+          })
+          const s3Key = buildGenerationSvgKey(generation.userId, jobRecord.id)
+          const sizeBytes = Buffer.byteLength(cleanSvg, 'utf8')
+
+          // Upload to S3
+          await uploadSvg({
+            key: s3Key,
+            svg: cleanSvg,
+            cacheControl: 'public, max-age=31536000, immutable',
+          })
+
+          await tx.svgGeneration.update({
+            where: { id: generation.id },
+            data: { s3Key, s3SizeBytes: sizeBytes },
           })
 
           await tx.generationJob.update({
