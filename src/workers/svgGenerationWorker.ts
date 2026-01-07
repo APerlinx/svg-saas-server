@@ -10,6 +10,8 @@ import { GenerationJobStatus } from '@prisma/client'
 import { connectRedis } from '../lib/redis'
 import { DEFAULT_STYLE } from '../constants/svgStyles'
 import { buildGenerationSvgKey, uploadSvg } from '../lib/s3'
+import { IS_PRODUCTION } from '../config/env'
+import * as Sentry from '@sentry/node'
 
 const concurrency = Number(process.env.SVG_WORKER_CONCURRENCY ?? 2)
 
@@ -258,6 +260,12 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           },
           'SVG generation job failed'
         )
+
+        if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+          Sentry.captureException(error, {
+            tags: { jobId: job.data.jobId, errorCode: mapped.code },
+          })
+        }
 
         throw error
       }
