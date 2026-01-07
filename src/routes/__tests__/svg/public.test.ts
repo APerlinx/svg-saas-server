@@ -37,6 +37,7 @@ jest.mock('../../../middleware/rateLimiter', () => ({
   authLimiter: jest.fn((req, res, next) => next()),
   apiLimiter: jest.fn((req, res, next) => next()),
   forgotPasswordLimiter: jest.fn((req, res, next) => next()),
+  downloadLimiter: jest.fn((req, res, next) => next()),
 }))
 
 import request from 'supertest'

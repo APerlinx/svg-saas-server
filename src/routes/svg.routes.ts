@@ -8,7 +8,10 @@ import { getUserId, requireUserId } from '../utils/getUserId'
 import { sanitizeInput } from '../utils/sanitizeInput'
 import { computeRequestHash } from '../utils/computeRequestHash'
 import { dailyGenerationLimit } from '../middleware/dailyLimit'
-import { svgGenerationLimiter } from '../middleware/rateLimiter'
+import {
+  downloadLimiter,
+  svgGenerationLimiter,
+} from '../middleware/rateLimiter'
 import { logger } from '../lib/logger'
 import { cache } from '../lib/cache'
 import { IS_PRODUCTION } from '../config/env'
@@ -332,6 +335,7 @@ router.get(
 router.get(
   '/:id/download',
   authMiddleware,
+  downloadLimiter,
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params
@@ -350,10 +354,13 @@ router.get(
       }
 
       if (!generation.s3Key) {
-        return res.status(404).json({ error: 'File not available' })
+        return res
+          .status(404)
+          .json({ error: 'File not available. Please try generating again.' })
       }
 
       const downloadUrl = await getDownloadUrl(generation.s3Key)
+      res.set('Cache-Control', 'no-store')
       res.json({ downloadUrl })
     } catch (error) {
       logger.error(

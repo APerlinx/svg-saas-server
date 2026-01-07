@@ -121,3 +121,22 @@ export const svgGenerationLimiter = createRateLimiter({
     return req.ip || 'unknown'
   },
 })
+
+export const downloadLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: 'Too many download requests. Please try again later.',
+  keyPrefix: 'rl:download',
+
+  keyGenerator: (req) => {
+    if (
+      req.user &&
+      typeof req.user === 'object' &&
+      'id' in req.user &&
+      typeof (req.user as any).id === 'string'
+    ) {
+      return (req.user as any).id
+    }
+    return req.ip || 'unknown'
+  },
+})

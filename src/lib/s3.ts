@@ -59,5 +59,5 @@ export async function getDownloadUrl(key: string) {
 }
 
 export function buildGenerationSvgKey(userId: string, jobId: string) {
-  return `users/${userId}/jobs/${jobId}/final.svg`
+  return `users/${userId}/jobs/${jobId}/chatsvg.svg`
 }
