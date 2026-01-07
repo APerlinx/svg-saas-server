@@ -16,6 +16,7 @@ import {
   enqueueSvgGenerationJob,
   svgGenerationQueue,
 } from '../jobs/svgGenerationQueue'
+import { getDownloadUrl } from '../lib/s3'
 
 const router = Router()
 
@@ -322,6 +323,42 @@ router.get(
       logger.error(
         { error, jobId: req.params.id, userId: getUserId(req) },
         'Error fetching generation job'
+      )
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
+
+router.get(
+  '/:id/download',
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params
+      const userId = requireUserId(req)
+
+      const generation = await prisma.svgGeneration.findFirst({
+        where: {
+          id,
+          userId,
+        },
+        select: { s3Key: true },
+      })
+
+      if (!generation) {
+        return res.status(404).json({ error: 'Generation not found' })
+      }
+
+      if (!generation.s3Key) {
+        return res.status(404).json({ error: 'File not available' })
+      }
+
+      const downloadUrl = await getDownloadUrl(generation.s3Key)
+      res.json({ downloadUrl })
+    } catch (error) {
+      logger.error(
+        { error, generationId: req.params.id, userId: getUserId(req) },
+        'Error generating download URL'
       )
       res.status(500).json({ error: 'Internal server error' })
     }
