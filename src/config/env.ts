@@ -57,3 +57,16 @@ export const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI
 if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || !GITHUB_REDIRECT_URI) {
   throw new Error('GitHub OAuth credentials must be defined in .env file')
 }
+
+// AWS S3 Configuration
+export const AWS_REGION = process.env.S3_REGION || process.env.AWS_REGION
+export const S3_BUCKET = process.env.S3_BUCKET
+export const S3_SIGNED_URL_TTL = process.env.S3_SIGNED_URL_TTL
+  ? parseInt(process.env.S3_SIGNED_URL_TTL, 10)
+  : 60 // default to 60 seconds
+if (IS_PRODUCTION && (!AWS_REGION || !S3_BUCKET)) {
+  throw new Error(
+    'AWS_REGION and S3_BUCKET must be defined in .env file for production'
+  )
+}
+export const IS_S3_ENABLED = !!(AWS_REGION && S3_BUCKET)

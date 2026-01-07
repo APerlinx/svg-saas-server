@@ -9,6 +9,9 @@ import { cache } from '../lib/cache'
 import { GenerationJobStatus } from '@prisma/client'
 import { connectRedis } from '../lib/redis'
 import { DEFAULT_STYLE } from '../constants/svgStyles'
+import { buildGenerationSvgKey, uploadSvg } from '../lib/s3'
+import { IS_PRODUCTION, IS_S3_ENABLED } from '../config/env'
+import * as Sentry from '@sentry/node'
 
 const concurrency = Number(process.env.SVG_WORKER_CONCURRENCY ?? 2)
 
@@ -191,6 +194,23 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
             },
           })
 
+          if (IS_S3_ENABLED) {
+            const s3Key = buildGenerationSvgKey(generation.userId, jobRecord.id)
+            const sizeBytes = Buffer.byteLength(cleanSvg, 'utf8')
+
+            // Upload to S3
+            await uploadSvg({
+              key: s3Key,
+              svg: cleanSvg,
+              cacheControl: 'public, max-age=31536000, immutable',
+            })
+
+            await tx.svgGeneration.update({
+              where: { id: generation.id },
+              data: { s3Key, s3SizeBytes: sizeBytes },
+            })
+          }
+
           await tx.generationJob.update({
             where: { id: jobId },
             data: {
@@ -243,6 +263,12 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           },
           'SVG generation job failed'
         )
+
+        if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+          Sentry.captureException(error, {
+            tags: { jobId: job.data.jobId, errorCode: mapped.code },
+          })
+        }
 
         throw error
       }

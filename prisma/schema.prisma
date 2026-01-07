@@ -47,6 +47,9 @@ model SvgGeneration {
   creditsUsed Int? // optional
   privacy     Boolean @default(false)
 
+  s3Key String? @unique
+  s3SizeBytes Int?
+
   createdAt DateTime @default(now())
 
   generationJob GenerationJob? @relation("JobToGeneration")
