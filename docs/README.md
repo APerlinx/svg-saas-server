@@ -2,7 +2,7 @@
 
 # chatSVG - Backend
 
-A production-ready SaaS backend for generating SVG assets with enterprise-grade authentication, session management, and asynchronous job processing. Built with modern best practices including BullMQ queues, refresh token rotation, reuse detection, CSRF protection, and comprehensive test coverage.
+> A production-grade SaaS backend for generating SVG assets, featuring secure cookie-based auth (JWT + refresh rotation), CSRF protection, BullMQ-driven async processing, and S3-backed artifact storage with signed downloads—fully tested and deployable via Docker.
 
 ## 🚀 Tech Stack
 
@@ -10,7 +10,7 @@ A production-ready SaaS backend for generating SVG assets with enterprise-grade 
 
 - **Node.js** + **Express** + **TypeScript**
 - **PostgreSQL** (Neon hosted database)
-- **Redis** (Upstash for BullMQ and caching)
+- **Redis** (AWS ElastiCache for BullMQ and caching)
 - **Prisma ORM** (type-safe database client)
 - **BullMQ** (async job queue for SVG generation)
 - **Passport.js** (OAuth strategies for Google & GitHub)
@@ -133,8 +133,8 @@ DATABASE_URL=postgresql://user:password@host:5432/database
 
 # Redis (for BullMQ and caching)
 REDIS_URL=redis://localhost:6379
-# Or for Upstash (TLS):
-# REDIS_URL=rediss://default:password@host:port
+# Or for a managed Redis service (TLS):
+# REDIS_URL=rediss://user:password@host:port
 
 # Frontend URL
 FRONTEND_URL=http://localhost:5173
@@ -549,7 +549,7 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema and [`ASYNC_G
 
 ## 🚀 Deployment
 
-**Note:** CI/CD is documented in the client repository.
+Production infrastructure and deployment details are documented in [`INFRA.md`](./INFRA.md).
 
 ### Production Checklist
 
@@ -563,17 +563,20 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema and [`ASYNC_G
 - [ ] Enable rate limiting
 - [ ] Configure email service
 - [ ] Set up OAuth redirect URIs for production domain
-- [ ] Provision managed Redis (Upstash, Render, AWS ElastiCache)
-- [ ] Deploy worker service separately from API
+- [ ] Provision Redis (AWS ElastiCache)
+- [ ] Provision S3 bucket for SVG artifact storage
+- [ ] Deploy worker service separately from API (`chatsvg-worker`)
 - [ ] Configure `SVG_WORKER_CONCURRENCY` based on load
 - [ ] Set up health checks for both API and worker
 
 ### Recommended Hosting
 
-- **Backend:** Railway, Render, Fly.io, or AWS
-- **Database:** Neon, Supabase, or AWS RDS
-- **Redis:** Upstash (recommended), Render Redis, or AWS ElastiCache
-- **Email:** Resend, SendGrid, or AWS SES
+- **Frontend:** Vercel (custom domain)
+- **Backend:** AWS EC2 running Kubernetes (k3s)
+- **Database:** Neon (PostgreSQL)
+- **Redis:** AWS ElastiCache (Redis OSS)
+- **Object storage:** AWS S3
+- **Email:** Resend
 
 **Worker Deployment:**
 
