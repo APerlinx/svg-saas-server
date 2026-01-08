@@ -362,18 +362,30 @@ npm run dev
 npm run worker:dev
 ```
 
-### Production (Render / Fly / Railway)
+### Production (k3s on AWS EC2)
 
-1. **Provision Redis** (Upstash, Render Redis, etc.)
-   - Set `REDIS_URL=rediss://...` in environment
-2. **Deploy API Service**
-   - `npm run start` (runs `src/server.ts`)
-   - Ensure `PORT`, `DATABASE_URL`, `JWT_SECRET`, `REDIS_URL` are set
-3. **Deploy Worker Service**
-   - Same codebase, different entry point
-   - `npm run worker` (runs `dist/workers/svgGenerationWorker.js`)
-   - Set `SVG_WORKER_CONCURRENCY=2` (or higher for more throughput)
-   - Ensure same `DATABASE_URL` and `REDIS_URL` as API
+In production the API and worker run as separate Kubernetes deployments.
+
+1. **Provision managed services**
+
+- PostgreSQL (Neon)
+- Redis (AWS ElastiCache)
+- S3 (artifact storage)
+
+2. **Configure Kubernetes Secrets / ConfigMaps**
+
+- `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, OAuth credentials
+- `AWS_REGION`/`S3_REGION`, `S3_BUCKET` (for S3 uploads + signed URLs)
+
+3. **Deploy API + worker**
+
+- `chatsvg-api` serves HTTP and enqueues jobs
+- `chatsvg-worker` processes BullMQ jobs asynchronously
+
+4. **Rollouts / scaling**
+
+- Scale workers independently (N workers for throughput)
+- Increase `SVG_WORKER_CONCURRENCY` per worker for vertical scaling
 
 **Health Checks:**
 
