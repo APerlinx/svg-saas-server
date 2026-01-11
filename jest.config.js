@@ -4,7 +4,10 @@ module.exports = {
   moduleFileExtensions: ['js', 'ts', 'json', 'node'],
   testMatch: ['**/src/**/*.test.(js|ts)'],
   coverageDirectory: 'coverage',
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
-};
+}

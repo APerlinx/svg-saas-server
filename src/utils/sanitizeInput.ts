@@ -1,4 +1,4 @@
 const sanitizeInput = (str: string): string => {
-  return str.trim().replace(/[<>]/g, '') // Remove < and > to prevent XSS
+  return str.trim().replace(/\u0000/g, '')
 }
 export { sanitizeInput }

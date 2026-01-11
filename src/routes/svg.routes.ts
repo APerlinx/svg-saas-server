@@ -104,15 +104,6 @@ router.post(
       const { prompt, style, model, privacy } = req.body
       const userId = requireUserId(req)
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true },
-      })
-
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' })
-      }
-
       if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' })
       }
@@ -161,6 +152,22 @@ router.post(
       const isPrivate = privacy ?? false
 
       const rawIdempotencyKey = req.header('x-idempotency-key')?.trim()
+      if (!rawIdempotencyKey) {
+        logger.warn(
+          {
+            userId,
+            requestId: req.requestId,
+            userAgent: req.get('user-agent'),
+            ip: req.ip,
+          },
+          'Missing x-idempotency-key header for SVG generation request'
+        )
+
+        return res.status(400).json({
+          error:
+            'Missing x-idempotency-key header. Please retry and ensure your client sends an idempotency key.',
+        })
+      }
       if (rawIdempotencyKey && rawIdempotencyKey.length > 128) {
         return res
           .status(400)
@@ -174,29 +181,36 @@ router.post(
         privacy: isPrivate,
       })
 
-      if (rawIdempotencyKey) {
-        const existingJob = await prisma.generationJob.findFirst({
-          where: {
-            userId,
-            idempotencyKey: rawIdempotencyKey,
-          },
-          select: generationJobSelect,
-        })
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      })
 
-        if (existingJob) {
-          if (existingJob.requestHash === requestHash) {
-            return res
-              .status(getDuplicateStatus(existingJob))
-              .location(`/api/svg/generation-jobs/${existingJob.id}`)
-              .json({
-                job: formatGenerationJobResponse(existingJob),
-                duplicate: true,
-              })
-          } else {
-            return res.status(409).json({
-              error: 'Request already in progress',
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' })
+      }
+
+      const existingJob = await prisma.generationJob.findFirst({
+        where: {
+          userId,
+          idempotencyKey: rawIdempotencyKey,
+        },
+        select: generationJobSelect,
+      })
+
+      if (existingJob) {
+        if (existingJob.requestHash === requestHash) {
+          return res
+            .status(getDuplicateStatus(existingJob))
+            .location(`/api/svg/generation-jobs/${existingJob.id}`)
+            .json({
+              job: formatGenerationJobResponse(existingJob),
+              duplicate: true,
             })
-          }
+        } else {
+          return res.status(409).json({
+            error: 'Request already in progress',
+          })
         }
       }
 
@@ -210,7 +224,7 @@ router.post(
             style,
             model: selectedModel,
             privacy: isPrivate,
-            idempotencyKey: rawIdempotencyKey ?? null,
+            idempotencyKey: rawIdempotencyKey,
             requestHash,
           },
           select: generationJobSelect,
@@ -251,7 +265,29 @@ router.post(
         throw createError
       }
 
-      await enqueueSvgGenerationJob(generationJob.id, userId)
+      try {
+        await enqueueSvgGenerationJob(generationJob.id, userId)
+      } catch (error) {
+        logger.error(
+          { error, jobId: generationJob.id, userId, requestId: req.requestId },
+          'Failed to enqueue SVG generation job'
+        )
+
+        await prisma.generationJob.updateMany({
+          where: { id: generationJob.id, status: 'QUEUED' },
+          data: {
+            status: 'FAILED',
+            finishedAt: new Date(),
+            lastFailedAt: new Date(),
+            errorCode: 'ENQUEUE_FAILED',
+            errorMessage: 'Failed to enqueue job.',
+          },
+        })
+
+        return res.status(503).json({
+          error: 'Failed to start generation. Please retry.',
+        })
+      }
 
       let jobCounts:
         | Awaited<ReturnType<typeof svgGenerationQueue.getJobCounts>>
