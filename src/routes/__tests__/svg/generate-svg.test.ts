@@ -32,10 +32,6 @@ jest.mock('../../../utils/getUserId', () => ({
   requireUserId: (req: any) => req.user.id,
   getUserId: (req: any) => req.user?.id,
 }))
-jest.mock('../../../utils/sanitizeInput', () => ({
-  __esModule: true,
-  sanitizeInput: (input: string) => input,
-}))
 
 import request from 'supertest'
 import express from 'express'
@@ -80,8 +76,8 @@ const baseJob = {
 }
 
 beforeAll(async () => {
-  const routerModule = await import('../../svg.routes')
-  const router = routerModule.default
+  const routerModule = await import('../../svg.routes.js')
+  const router = routerModule.default as unknown as express.Router
 
   app = express()
   app.use(express.json())
@@ -146,10 +142,13 @@ describe('POST /generate-svg', () => {
   })
 
   it('should enqueue a generation job and return 202 with queue metadata', async () => {
-    const res = await request(app).post('/api/svg/generate-svg').send({
-      prompt: basePrompt,
-      style: baseStyle,
-    })
+    const res = await request(app)
+      .post('/api/svg/generate-svg')
+      .set('x-idempotency-key', 'key-123')
+      .send({
+        prompt: basePrompt,
+        style: baseStyle,
+      })
 
     expect(res.status).toBe(202)
     expect(res.body.job.id).toBe('job-123')
@@ -160,7 +159,7 @@ describe('POST /generate-svg', () => {
         style: baseStyle,
         model: baseModel,
         privacy: basePrivacy,
-        idempotencyKey: null,
+        idempotencyKey: 'key-123',
         requestHash: expect.any(String),
       },
       select: expect.objectContaining({
@@ -230,12 +229,27 @@ describe('POST /generate-svg', () => {
       new Error('DB error')
     )
 
-    const res = await request(app).post('/api/svg/generate-svg').send({
-      prompt: 'A valid prompt for SVG generation',
-      style: VALID_SVG_STYLES[0],
-    })
+    const res = await request(app)
+      .post('/api/svg/generate-svg')
+      .set('x-idempotency-key', 'key-500')
+      .send({
+        prompt: 'A valid prompt for SVG generation',
+        style: VALID_SVG_STYLES[0],
+      })
 
     expect(res.status).toBe(500)
     expect(res.body.error).toMatch(/Internal server error/)
+  })
+
+  it('should return 400 if idempotency key is missing', async () => {
+    const res = await request(app).post('/api/svg/generate-svg').send({
+      prompt: basePrompt,
+      style: baseStyle,
+    })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/idempotency/i)
+    expect(prisma.generationJob.create).not.toHaveBeenCalled()
+    expect(enqueueSvgGenerationJob).not.toHaveBeenCalled()
   })
 })

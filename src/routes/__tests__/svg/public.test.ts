@@ -48,8 +48,8 @@ import { cache } from '../../../lib/cache'
 let app: express.Express
 
 beforeAll(async () => {
-  const routerModule = await import('../../svg.routes')
-  const router = routerModule.default
+  const routerModule = await import('../../svg.routes.js')
+  const router = routerModule.default as unknown as express.Router
 
   app = express()
   app.use(express.json())
