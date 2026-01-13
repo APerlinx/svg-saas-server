@@ -4,10 +4,15 @@ jest.mock('../../../lib/prisma', () => ({
     generationJob: {
       findFirst: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
     },
     user: {
       findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
     },
+    $transaction: jest.fn(),
   },
 }))
 jest.mock('../../../jobs/svgGenerationQueue', () => ({
@@ -87,6 +92,20 @@ beforeAll(async () => {
 describe('POST /generate-svg', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+
+    // Mock Prisma transaction wrapper used by the route.
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: any) =>
+      fn({
+        user: {
+          updateMany: prisma.user.updateMany,
+          update: prisma.user.update,
+        },
+        generationJob: {
+          update: prisma.generationJob.update,
+          updateMany: prisma.generationJob.updateMany,
+        },
+      })
+    )
     ;(svgGenerationQueue.getJobCounts as jest.Mock).mockResolvedValue({
       waiting: 0,
       delayed: 0,
@@ -97,6 +116,17 @@ describe('POST /generate-svg', () => {
     })
     ;(prisma.generationJob.findFirst as jest.Mock).mockResolvedValue(null)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user1' })
+
+    // Default: user has credits available.
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    ;(prisma.generationJob.update as jest.Mock).mockResolvedValue({
+      ...baseJob,
+      creditsCharged: true,
+    })
+    ;(prisma.generationJob.updateMany as jest.Mock).mockResolvedValue({
+      count: 0,
+    })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ id: 'user1' })
   })
 
   it('should return 400 if prompt is missing', async () => {
