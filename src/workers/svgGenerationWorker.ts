@@ -122,7 +122,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           },
           data: {
             status: GenerationJobStatus.RUNNING,
-            startedAt: jobRecord.startedAt ?? new Date(), // Only set on first attempt
+            startedAt: jobRecord.startedAt ?? new Date(),
             lastStartedAt: new Date(),
             errorCode: null,
             errorMessage: null,
@@ -164,7 +164,8 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
                 status: GenerationJobStatus.FAILED,
                 finishedAt: new Date(),
                 errorCode: 'INSUFFICIENT_CREDITS',
-                errorMessage: 'User does not have enough credits.',
+                errorMessage:
+                  'You do not have enough credits to generate an SVG. Please purchase more credits and try again.',
               },
             })
             throw new Error('INSUFFICIENT_CREDITS')

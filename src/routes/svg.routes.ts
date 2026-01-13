@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { Prisma } from '@prisma/client'
+import { Prisma, GenerationJobStatus } from '@prisma/client'
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth'
 import prisma from '../lib/prisma'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
@@ -265,6 +265,39 @@ router.post(
         throw createError
       }
 
+      const charged = await prisma.$transaction(async (tx) => {
+        const debitResult = await tx.user.updateMany({
+          where: { id: userId, credits: { gt: 0 } },
+          data: { credits: { decrement: 1 } },
+        })
+
+        if (debitResult.count === 0) return false
+
+        await tx.generationJob.update({
+          where: { id: generationJob.id },
+          data: { creditsCharged: true },
+        })
+
+        return true
+      })
+
+      if (!charged) {
+        const failedJob = await prisma.generationJob.update({
+          where: { id: generationJob.id },
+          data: {
+            status: GenerationJobStatus.FAILED,
+            finishedAt: new Date(),
+            lastFailedAt: new Date(),
+            errorCode: 'INSUFFICIENT_CREDITS',
+            errorMessage:
+              'You do not have enough credits to generate an SVG. Please purchase more credits and try again.',
+          },
+        })
+        return res.status(402).json({
+          error: failedJob.errorMessage,
+        })
+      }
+
       try {
         await enqueueSvgGenerationJob(generationJob.id, userId)
       } catch (error) {
@@ -272,18 +305,32 @@ router.post(
           { error, jobId: generationJob.id, userId, requestId: req.requestId },
           'Failed to enqueue SVG generation job'
         )
+        await prisma.$transaction(async (tx) => {
+          const refundClaim = await tx.generationJob.updateMany({
+            where: {
+              id: generationJob.id,
+              status: GenerationJobStatus.QUEUED,
+              creditsCharged: true,
+              creditsRefunded: false,
+              generationId: null,
+            },
+            data: {
+              status: GenerationJobStatus.FAILED,
+              finishedAt: new Date(),
+              lastFailedAt: new Date(),
+              errorCode: 'ENQUEUE_FAILED',
+              errorMessage: 'Failed to enqueue job.',
+              creditsRefunded: true,
+            },
+          })
 
-        await prisma.generationJob.updateMany({
-          where: { id: generationJob.id, status: 'QUEUED' },
-          data: {
-            status: 'FAILED',
-            finishedAt: new Date(),
-            lastFailedAt: new Date(),
-            errorCode: 'ENQUEUE_FAILED',
-            errorMessage: 'Failed to enqueue job.',
-          },
+          if (refundClaim.count > 0) {
+            await tx.user.update({
+              where: { id: userId },
+              data: { credits: { increment: 1 } },
+            })
+          }
         })
-
         return res.status(503).json({
           error: 'Failed to start generation. Please retry.',
         })
