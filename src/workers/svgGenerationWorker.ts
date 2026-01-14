@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq'
+import { UnrecoverableError, Worker } from 'bullmq'
 import prisma from '../lib/prisma'
 import { createBullMqConnection } from '../lib/bullmq'
 import { SVG_GENERATION_QUEUE_NAME } from '../jobs/svgGenerationQueue'
@@ -14,6 +14,9 @@ import { IS_PRODUCTION, IS_S3_ENABLED } from '../config/env'
 import * as Sentry from '@sentry/node'
 
 const concurrency = Number(process.env.SVG_WORKER_CONCURRENCY ?? 2)
+
+const INSUFFICIENT_CREDITS_MESSAGE =
+  'You do not have enough credits to generate an SVG. Please purchase more credits and try again.'
 
 interface SvgGenerationJobData {
   jobId: string
@@ -158,17 +161,24 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           })
 
           if (!result.success) {
-            await prisma.generationJob.update({
-              where: { id: jobId },
+            const now = new Date()
+
+            await prisma.generationJob.updateMany({
+              where: {
+                id: jobId,
+                status: GenerationJobStatus.RUNNING,
+                generationId: null,
+              },
               data: {
                 status: GenerationJobStatus.FAILED,
-                finishedAt: new Date(),
+                finishedAt: now,
+                lastFailedAt: now,
                 errorCode: 'INSUFFICIENT_CREDITS',
-                errorMessage:
-                  'You do not have enough credits to generate an SVG. Please purchase more credits and try again.',
+                errorMessage: INSUFFICIENT_CREDITS_MESSAGE,
               },
             })
-            throw new Error('INSUFFICIENT_CREDITS')
+
+            throw new UnrecoverableError('INSUFFICIENT_CREDITS')
           }
         }
 
@@ -239,28 +249,11 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
       } catch (error) {
         const mapped = mapErrorToCode(error)
 
-        const attempts = job.opts.attempts ?? 1
-        const isFinal = job.attemptsMade + 1 >= attempts
-
-        if (!isFinal) {
-          await prisma.generationJob.update({
-            where: { id: jobId },
-            data: {
-              status: GenerationJobStatus.QUEUED,
-              errorCode: mapped.code,
-              errorMessage: mapped.message,
-              attemptsMade: job.attemptsMade + 1,
-              lastFailedAt: new Date(),
-            },
-          })
-        }
-
         logger.error(
           {
             error: mapped.message,
             errorCode: mapped.code,
             jobId: job.data.jobId,
-            isFinal,
           },
           'SVG generation job failed'
         )
@@ -289,11 +282,38 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
     if (!job) return
 
     const attempts = job.opts.attempts ?? 1
-    const isFinal = job.attemptsMade >= attempts
+    const isUnrecoverable =
+      err instanceof UnrecoverableError ||
+      (err instanceof Error && err.name === 'UnrecoverableError')
+    const isFinal = isUnrecoverable || job.attemptsMade >= attempts
+
+    const mapped = mapErrorToCode(err)
+    const errorMessage =
+      mapped.code === 'INSUFFICIENT_CREDITS'
+        ? INSUFFICIENT_CREDITS_MESSAGE
+        : mapped.message
+
+    // Persist failure details for UI/status tracking.
+    if (!isFinal) {
+      await prisma.generationJob.update({
+        where: { id: job.data.jobId },
+        data: {
+          status: GenerationJobStatus.QUEUED,
+          errorCode: mapped.code,
+          errorMessage,
+          attemptsMade: job.attemptsMade,
+          lastFailedAt: new Date(),
+        },
+      })
+
+      logger.warn(
+        { jobId: job.id, error: err, attempt: job.attemptsMade },
+        'Job failed, will retry'
+      )
+      return
+    }
 
     if (isFinal) {
-      const mapped = mapErrorToCode(err)
-
       const jobRecord = await prisma.generationJob.findUnique({
         where: { id: job.data.jobId },
         select: { userId: true },
@@ -338,17 +358,14 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           status: GenerationJobStatus.FAILED,
           finishedAt: new Date(),
           errorCode: mapped.code,
-          errorMessage: mapped.message,
+          errorMessage,
+          attemptsMade: job.attemptsMade,
+          lastFailedAt: new Date(),
         },
       })
       logger.error(
         { jobId: job.id, error: mapped.message, errorCode: mapped.code },
         'Job permanently failed after retries'
-      )
-    } else {
-      logger.warn(
-        { jobId: job.id, error: err, attempt: job.attemptsMade },
-        'Job failed, will retry'
       )
     }
   })
