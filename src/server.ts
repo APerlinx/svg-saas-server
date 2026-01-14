@@ -27,7 +27,6 @@ if (IS_PRODUCTION && process.env.SENTRY_DSN) {
 }
 
 import app from './app'
-import { startScheduledJobs } from './jobs'
 import { logger } from './lib/logger'
 import { connectRedis, disconnectRedis } from './lib/redis'
 import { INSTANCE_ID } from './lib/instanceId'
@@ -188,7 +187,6 @@ async function main() {
     logger.info(`🛡️  CSRF protection: enabled`)
     logger.info(`🍪 Frontend URL: ${FRONTEND_URL}`)
     logger.info({ instanceId: INSTANCE_ID }, 'Server booted')
-    startScheduledJobs()
   })
 }
 
