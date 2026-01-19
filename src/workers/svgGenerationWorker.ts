@@ -12,6 +12,11 @@ import { DEFAULT_STYLE } from '../constants/svgStyles'
 import { buildGenerationSvgKey, uploadSvg } from '../lib/s3'
 import { IS_PRODUCTION, IS_S3_ENABLED } from '../config/env'
 import * as Sentry from '@sentry/node'
+import {
+  createJobFailedNotification,
+  createJobSucceededNotification,
+  maybeCreateOutOfCreditsNotification,
+} from '../services/notificationService'
 
 const concurrency = Number(process.env.SVG_WORKER_CONCURRENCY ?? 2)
 
@@ -115,6 +120,19 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
             { jobId, status: jobRecord.status },
             'Job already succeeded, skipping'
           )
+
+          if (jobRecord.generationId) {
+            await createJobSucceededNotification({
+              userId: jobRecord.userId,
+              jobId,
+              generationId: jobRecord.generationId,
+            })
+
+            await maybeCreateOutOfCreditsNotification({
+              userId: jobRecord.userId,
+              jobId,
+            })
+          }
           return
         }
 
@@ -178,6 +196,11 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
               },
             })
 
+            await createJobFailedNotification({
+              userId: jobRecord.userId,
+              jobId,
+            })
+
             throw new UnrecoverableError('INSUFFICIENT_CREDITS')
           }
         }
@@ -192,7 +215,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         const cleanSvg = sanitizeSvg(svg)
         await job.updateProgress(85)
 
-        await prisma.$transaction(async (tx) => {
+        const generationId = await prisma.$transaction(async (tx) => {
           const generation = await tx.svgGeneration.create({
             data: {
               userId: jobRecord.userId,
@@ -230,6 +253,19 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
               generationId: generation.id,
             },
           })
+
+          return generation.id
+        })
+
+        await createJobSucceededNotification({
+          userId: jobRecord.userId,
+          jobId,
+          generationId,
+        })
+
+        await maybeCreateOutOfCreditsNotification({
+          userId: jobRecord.userId,
+          jobId,
         })
 
         await job.updateProgress(100)
@@ -363,6 +399,13 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           lastFailedAt: new Date(),
         },
       })
+
+      if (jobRecord?.userId) {
+        await createJobFailedNotification({
+          userId: jobRecord.userId,
+          jobId: job.data.jobId,
+        })
+      }
       logger.error(
         { jobId: job.id, error: mapped.message, errorCode: mapped.code },
         'Job permanently failed after retries'

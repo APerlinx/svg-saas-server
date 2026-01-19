@@ -7,6 +7,10 @@ jest.mock('../../../lib/prisma', () => ({
       update: jest.fn(),
       updateMany: jest.fn(),
     },
+    notification: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+    },
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -116,6 +120,8 @@ describe('POST /generate-svg', () => {
     })
     ;(prisma.generationJob.findFirst as jest.Mock).mockResolvedValue(null)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user1' })
+    ;(prisma.notification.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.notification.create as jest.Mock).mockResolvedValue({ id: 'n1' })
 
     // Default: user has credits available.
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
