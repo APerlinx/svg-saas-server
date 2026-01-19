@@ -18,9 +18,14 @@ model User {
   credits      Int          @default(3)
   avatar       String?
 
+  // Notifications bell: last time the user opened/"saw" notifications.
+  // Use this to compute badge/new count: Notification.createdAt > notificationsLastSeenAt
+  notificationsLastSeenAt DateTime?
+
   generations    SvgGeneration[]
   refreshTokens  RefreshToken[]
   generationJobs GenerationJob[]
+  notifications  Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -128,6 +133,30 @@ model GenerationJob {
   @@index([userId, status])
 }
 
+model Notification {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type NotificationType
+
+  title   String?
+  message String
+
+  data Json?
+
+  jobId String?
+
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+  expiresAt DateTime?
+
+  @@unique([userId, jobId, type])
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
 enum Plan {
   FREE
   CUSTOMER
@@ -145,4 +174,15 @@ enum GenerationJobStatus {
   RUNNING
   SUCCEEDED
   FAILED
+}
+
+enum NotificationType {
+  JOB_SUCCEEDED
+  JOB_FAILED
+  LOW_CREDITS
+  PROMO_MONTHLY
+  CREDITS_PURCHASED
+  CREDITS_REFUNDED
+  ACCOUNT_SECURITY
+  SYSTEM_ANNOUNCEMENT
 }
