@@ -98,3 +98,19 @@ export async function maybeCreateOutOfCreditsNotification(args: {
     return null
   }
 }
+
+export async function createWelcomeNotification(args: {
+  userId: string
+  name?: string | null
+}) {
+  const name = args.name?.trim()
+  const greeting = name ? `Welcome, ${name}!` : 'Welcome!'
+
+  return createNotificationOnce({
+    userId: args.userId,
+    type: NotificationType.SYSTEM_ANNOUNCEMENT,
+    title: 'Welcome',
+    message: `${greeting} Your account is ready. Generate your first SVG whenever you like.`,
+    data: { kind: 'welcome' },
+  })
+}

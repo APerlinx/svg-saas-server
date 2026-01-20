@@ -16,6 +16,9 @@ jest.mock('../../../lib/prisma', () => ({
       findUnique: jest.fn(),
       create: jest.fn(),
     },
+    notification: {
+      create: jest.fn(),
+    },
   },
 }))
 
@@ -49,6 +52,7 @@ describe('POST /register', () => {
     jest.clearAllMocks()
     ;(sanitizeInput as jest.Mock).mockImplementation((val) => val)
     ;(getUserIp as jest.Mock).mockReturnValue('127.0.0.1')
+    ;(prisma.notification.create as jest.Mock).mockResolvedValue({ id: 'n1' })
   })
 
   it('should register a new user successfully', async () => {

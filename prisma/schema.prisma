@@ -18,8 +18,6 @@ model User {
   credits      Int          @default(3)
   avatar       String?
 
-  // Notifications bell: last time the user opened/"saw" notifications.
-  // Use this to compute badge/new count: Notification.createdAt > notificationsLastSeenAt
   notificationsLastSeenAt DateTime?
 
   generations    SvgGeneration[]

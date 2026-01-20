@@ -42,6 +42,7 @@ import {
   verifyAndRotateRefreshToken,
 } from '../utils/refreshToken'
 import { tryGetIO } from '../realtime/io'
+import { createWelcomeNotification } from '../services/notificationService'
 
 const router = Router()
 
@@ -101,6 +102,9 @@ router.post(
           termsAcceptedIp: getUserIp(req),
         },
       })
+
+      await createWelcomeNotification({ userId: user.id, name: user.name })
+
       // Generate access token (short-lived)
       const accessToken = jwt.sign({ userId: user.id }, JWT_SECRET, {
         expiresIn: ACCESS_TOKEN_EXPIRY,
