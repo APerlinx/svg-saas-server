@@ -71,6 +71,14 @@ Processes jobs from the queue with the following steps:
 5. **Mark success** – Update job to `SUCCEEDED` and link `generationId`
 6. **Refund on failure** – If final attempt fails, atomically refund credits with `creditsRefunded` flag
 
+#### Notifications
+
+On terminal job outcomes, the worker also creates DB-backed notification rows for the notifications bell UX:
+
+- `JOB_SUCCEEDED` (includes `generationId` and job metadata in `Notification.data`)
+- `JOB_FAILED` (generic message)
+- `LOW_CREDITS` as an "Out of credits" reminder when a successful job leaves the user with 0 credits
+
 **Error Mapping:**
 
 - `INSUFFICIENT_CREDITS` – User ran out of credits

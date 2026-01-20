@@ -67,6 +67,13 @@
 - ✅ Force re-login on security events
 - ✅ IP address & user-agent tracking
 
+### Notifications
+
+- ✅ Persistent notifications (DB-backed)
+- ✅ Notifications badge via `notificationsLastSeenAt`
+- ✅ Notification triggers: welcome, job succeeded/failed, out-of-credits
+- ✅ API endpoints: `GET /api/notification/latest`, `GET /api/notification/badge`, `POST /api/notification/seen`
+
 ---
 
 ## 🔐 Authentication Architecture

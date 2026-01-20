@@ -64,6 +64,8 @@ sequenceDiagram
         API->>DB: Create user record
         API->>DB: Store terms acceptance (IP + timestamp)
 
+      Note over DB: Create welcome notification row (notifications bell)
+
         API->>API: Generate JWT access token (15min)
         API->>API: Generate refresh token (random bytes)
         API->>API: Hash refresh token (SHA-256)
