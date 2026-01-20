@@ -126,6 +126,9 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
               userId: jobRecord.userId,
               jobId,
               generationId: jobRecord.generationId,
+              prompt: jobRecord.prompt,
+              style: jobRecord.style,
+              model: jobRecord.model,
             })
 
             await maybeCreateOutOfCreditsNotification({
@@ -261,6 +264,9 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           userId: jobRecord.userId,
           jobId,
           generationId,
+          prompt: jobRecord.prompt,
+          style: jobRecord.style,
+          model: jobRecord.model,
         })
 
         await maybeCreateOutOfCreditsNotification({

@@ -43,6 +43,9 @@ export async function createJobSucceededNotification(args: {
   userId: string
   jobId: string
   generationId?: string | null
+  prompt?: string
+  style?: string | null
+  model?: string | null
 }) {
   return createNotificationOnce({
     userId: args.userId,
@@ -50,7 +53,12 @@ export async function createJobSucceededNotification(args: {
     type: NotificationType.JOB_SUCCEEDED,
     title: 'SVG ready',
     message: 'Your SVG generation finished successfully.',
-    data: args.generationId ? { generationId: args.generationId } : undefined,
+    data: {
+      generationId: args.generationId ?? null,
+      prompt: args.prompt ?? null,
+      style: args.style ?? null,
+      model: args.model ?? null,
+    },
   })
 }
 
