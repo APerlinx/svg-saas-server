@@ -13,6 +13,7 @@ import {
   svgGenerationLimiter,
 } from '../middleware/rateLimiter'
 import { logger } from '../lib/logger'
+import { createJobFailedNotification } from '../services/notificationService'
 import { cache } from '../lib/cache'
 import { IS_PRODUCTION } from '../config/env'
 import {
@@ -293,6 +294,11 @@ router.post(
               'You do not have enough credits to generate an SVG. Please purchase more credits and try again.',
           },
         })
+
+        await createJobFailedNotification({
+          userId,
+          jobId: generationJob.id,
+        })
         return res.status(402).json({
           error: failedJob.errorMessage,
         })
@@ -330,6 +336,11 @@ router.post(
               data: { credits: { increment: 1 } },
             })
           }
+        })
+
+        await createJobFailedNotification({
+          userId,
+          jobId: generationJob.id,
         })
         return res.status(503).json({
           error: 'Failed to start generation. Please retry.',

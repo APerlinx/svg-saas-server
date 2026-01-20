@@ -1,17 +1,23 @@
 import express from 'express'
 import cors from 'cors'
+import * as Sentry from '@sentry/node'
+
 import userRoutes from './routes/user.routes'
 import authRoutes from './routes/auth.routes'
 import svgRoutes from './routes/svg.routes'
+import notificationRoutes from './routes/notification.routes'
+
 import passport from './config/passport'
-import { FRONTEND_URL, IS_PRODUCTION } from './config/env'
+import { IS_PRODUCTION } from './config/env'
 import cookieParser from 'cookie-parser'
+
 import { generateCsrfToken, validateCsrfToken } from './middleware/csrf'
 import { apiLimiter } from './middleware/rateLimiter'
-import pinoHttp from 'pino-http'
-import { logger } from './lib/logger'
-import * as Sentry from '@sentry/node'
 import { requestIdMiddleware } from './middleware/requestId'
+
+import { logger } from './lib/logger'
+import pinoHttp from 'pino-http'
+
 import prisma from './lib/prisma'
 import { redisClient } from './lib/redis'
 import { INSTANCE_ID } from './lib/instanceId'
@@ -108,6 +114,7 @@ app.get('/api/csrf', (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/user', validateCsrfToken, userRoutes)
 app.use('/api/svg', validateCsrfToken, svgRoutes)
+app.use('/api/notification', validateCsrfToken, notificationRoutes)
 
 app.use(
   (

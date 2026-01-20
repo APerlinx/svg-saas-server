@@ -21,6 +21,7 @@ flowchart TB
   Routes --> Auth[Auth\n`src/routes/auth.routes.ts`]
   Routes --> Svg[SVG\n`src/routes/svg.routes.ts`]
   Routes --> User[User\n`src/routes/user.routes.ts`]
+  Routes --> Notif[Notifications\n`src/routes/notification.routes.ts`]
 
   API --> Prisma[Prisma\n`src/lib/prisma.ts`]
   Prisma --> Postgres[(PostgreSQL\nNeon)]
@@ -97,6 +98,30 @@ Notes:
 
 - Jobs are created with an idempotency key (optional) to safely retry requests.
 - Worker failures refund credits on permanent failure.
+
+---
+
+## Notifications
+
+Notifications are stored in PostgreSQL (Prisma `Notification` model) and used for the notifications bell UX.
+
+### API endpoints
+
+Routes are mounted at `/api/notification` in `src/app.ts`:
+
+- `GET /api/notification/latest` – cursor pagination for the latest notifications
+- `GET /api/notification/badge` – count of notifications created after `User.notificationsLastSeenAt`
+- `POST /api/notification/seen` – updates `User.notificationsLastSeenAt` to "now"
+
+CSRF validation is enforced only for state-changing requests (so `POST /seen` requires `X-CSRF-Token`, GETs do not).
+
+### Creation triggers
+
+Notifications are created server-side (best-effort) at these points:
+
+- Welcome notification on successful registration (`src/routes/auth.routes.ts`)
+- Job succeeded / failed notifications from the worker (`src/workers/svgGenerationWorker.ts`)
+- "Out of credits" notification after a successful job if the user reaches 0 credits
 
 For deeper details: `ASYNC_GENERATION.md`.
 

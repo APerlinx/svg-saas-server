@@ -68,8 +68,56 @@ jobs:
           kubectl -n "$NAMESPACE" get pods
           kubectl -n "$NAMESPACE" rollout status "deploy/$DEPLOY_API"
 
+      - name: Run Prisma migrations (Job)
+        run: |
+          export KUBECONFIG=/home/actions/.kube/config
+
+          JOB_NAME="prisma-migrate-$TAG"
+
+          # Job specs are immutable; delete first for re-runs.
+          kubectl -n "$NAMESPACE" delete job "$JOB_NAME" --ignore-not-found
+
+          cat <<EOF | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB_NAME}
+            namespace: ${NAMESPACE}
+          spec:
+            backoffLimit: 1
+            activeDeadlineSeconds: 600
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                restartPolicy: Never
+                imagePullSecrets:
+                  - name: ecr-pull
+                containers:
+                  - name: migrate
+                    image: ${ECR_API}:${TAG}
+                    imagePullPolicy: Always
+                    command: ["sh","-lc","npx prisma migrate deploy"]
+                    envFrom:
+                      - configMapRef:
+                          name: chatsvg-config
+                      - secretRef:
+                          name: chatsvg-secrets
+                      - secretRef:
+                          name: chatsvg-s3-secrets
+          EOF
+
+          kubectl -n "$NAMESPACE" wait --for=condition=complete "job/$JOB_NAME" --timeout=600s || (
+            kubectl -n "$NAMESPACE" describe job "$JOB_NAME" || true
+            kubectl -n "$NAMESPACE" logs -l job-name="$JOB_NAME" --all-containers=true || true
+            exit 1
+          )
+
+          # Best-effort cleanup (ttlSecondsAfterFinished should handle this too).
+          kubectl -n "$NAMESPACE" delete job "$JOB_NAME" --ignore-not-found
+
       - name: Deploy API + Worker
         run: |
+          export KUBECONFIG=/home/actions/.kube/config
           kubectl -n "$NAMESPACE" set image "deploy/$DEPLOY_API" \
             "$CONTAINER_API=$ECR_API:$TAG"
           kubectl -n "$NAMESPACE" set image "deploy/$DEPLOY_WORKER" \
@@ -77,6 +125,7 @@ jobs:
 
       - name: Wait for rollout
         run: |
+          export KUBECONFIG=/home/actions/.kube/config
           kubectl -n "$NAMESPACE" rollout status "deploy/$DEPLOY_API" --timeout=180s
           kubectl -n "$NAMESPACE" rollout status "deploy/$DEPLOY_WORKER" --timeout=180s
 
