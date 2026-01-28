@@ -6,6 +6,7 @@ import { getUserId, requireUserId } from '../utils/getUserId'
 import { logger } from '../lib/logger'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, AiModel } from '../constants/models'
+import { PUBLIC_ASSETS_BASE_URL } from '../config/env'
 
 const router = Router()
 
@@ -77,13 +78,19 @@ router.get(
 
     const isFirstPage = !cursor
 
+    const buildSvgUrl = (s3Key?: string | null) => {
+      if (!s3Key) return null
+      if (!PUBLIC_ASSETS_BASE_URL) return null
+      return `${PUBLIC_ASSETS_BASE_URL}/${s3Key}`
+    }
+
     try {
       const userId = requireUserId(req)
 
       if (style && !VALID_SVG_STYLES.includes(style as SvgStyle)) {
         return res.status(400).json({
           error: `Invalid style. Must be one of: ${VALID_SVG_STYLES.join(
-            ', '
+            ', ',
           )}`,
         })
       }
@@ -129,6 +136,7 @@ router.get(
             privacy: true,
             creditsUsed: true,
             createdAt: true,
+            s3Key: true,
           },
         })
 
@@ -136,7 +144,19 @@ router.get(
         const items = hasMore ? generations.slice(0, -1) : generations
         const nextCursor = hasMore ? items[items.length - 1]!.id : null
 
-        return { generations: items, nextCursor }
+        return {
+          generations: items.map((g) => ({
+            id: g.id,
+            prompt: g.prompt,
+            style: g.style,
+            model: g.model,
+            privacy: g.privacy,
+            creditsUsed: g.creditsUsed,
+            createdAt: g.createdAt,
+            svgUrl: buildSvgUrl(g.s3Key),
+          })),
+          nextCursor,
+        }
       }
 
       if (isFirstPage) {
@@ -158,11 +178,11 @@ router.get(
 
       logger.error(
         { error, userId: getUserId(req) },
-        'Error fetching SVG history'
+        'Error fetching SVG history',
       )
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 export default router
