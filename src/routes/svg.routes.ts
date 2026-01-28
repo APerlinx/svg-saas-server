@@ -15,7 +15,7 @@ import {
 import { logger } from '../lib/logger'
 import { createJobFailedNotification } from '../services/notificationService'
 import { cache } from '../lib/cache'
-import { IS_PRODUCTION } from '../config/env'
+import { IS_PRODUCTION, PUBLIC_ASSETS_BASE_URL } from '../config/env'
 import {
   enqueueSvgGenerationJob,
   svgGenerationQueue,
@@ -139,7 +139,7 @@ router.post(
       if (!style || !VALID_SVG_STYLES.includes(style as SvgStyle)) {
         return res.status(400).json({
           error: `Invalid style. Must be one of: ${VALID_SVG_STYLES.join(
-            ', '
+            ', ',
           )}`,
         })
       }
@@ -161,7 +161,7 @@ router.post(
             userAgent: req.get('user-agent'),
             ip: req.ip,
           },
-          'Missing x-idempotency-key header for SVG generation request'
+          'Missing x-idempotency-key header for SVG generation request',
         )
 
         return res.status(400).json({
@@ -309,7 +309,7 @@ router.post(
       } catch (error) {
         logger.error(
           { error, jobId: generationJob.id, userId, requestId: req.requestId },
-          'Failed to enqueue SVG generation job'
+          'Failed to enqueue SVG generation job',
         )
         await prisma.$transaction(async (tx) => {
           const refundClaim = await tx.generationJob.updateMany({
@@ -355,7 +355,7 @@ router.post(
         jobCounts = await svgGenerationQueue.getJobCounts(
           'waiting',
           'delayed',
-          'active'
+          'active',
         )
       }
 
@@ -372,7 +372,7 @@ router.post(
       logger.error({ error, userId: getUserId(req) }, 'SVG Generation error')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 router.get(
@@ -419,11 +419,11 @@ router.get(
     } catch (error) {
       logger.error(
         { error, jobId: req.params.id, userId: getUserId(req) },
-        'Error fetching generation job'
+        'Error fetching generation job',
       )
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 router.get(
@@ -459,113 +459,159 @@ router.get(
     } catch (error) {
       logger.error(
         { error, generationId: req.params.id, userId: getUserId(req) },
-        'Error generating download URL'
+        'Error generating download URL',
       )
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
-router.get('/history', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const userId = requireUserId(req)
-
-    const page = parseInt(req.query.page as string) || 1
-    const limit = parseInt(req.query.limit as string) || 10
-    const skip = (page - 1) * limit
-
-    const totalCount = await prisma.svgGeneration.count({ where: { userId } })
-
-    const generations = await prisma.svgGeneration.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      skip: skip,
-      take: limit,
-      select: {
-        id: true,
-        prompt: true,
-        style: true,
-        model: true,
-        privacy: true,
-        creditsUsed: true,
-        createdAt: true,
-      },
-    })
-
-    const totalPages = Math.ceil(totalCount / limit)
-    const hasMore = page < totalPages
-
-    res.json({
-      generations,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        limit,
-        hasMore,
-      },
-    })
-  } catch (error) {
-    logger.error(
-      { error, userId: getUserId(req) },
-      'Error fetching SVG history'
-    )
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
 router.get('/public', async (req: Request, res: Response) => {
+  // This endpoint is server-side cached in Redis; avoid browser caching/ETag 304
+  // surprises that can show stale payloads during development.
+  res.set('Cache-Control', 'no-store')
+
+  if (!IS_PRODUCTION) {
+    res.set(
+      'x-public-assets-base-url',
+      PUBLIC_ASSETS_BASE_URL ? 'set' : 'unset',
+    )
+  }
+
+  const rawLimit = Number(req.query.limit)
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 100)
+    : 50
+
+  const nextCursor =
+    typeof req.query.cursor === 'string' ? req.query.cursor.trim() : undefined
+  const style =
+    typeof req.query.style === 'string' ? req.query.style.trim() : undefined
+  const model =
+    typeof req.query.model === 'string' ? req.query.model.trim() : undefined
+
+  const isFirstPage = !nextCursor
+  const cacheKey = cache.buildKey(
+    'public:v4:first',
+    'style',
+    style ?? 'all',
+    'model',
+    model ?? 'all',
+    'limit',
+    limit,
+  )
+
+  const buildPublicSvgUrl = (s3Key?: string | null) => {
+    if (!s3Key) return null
+    if (!PUBLIC_ASSETS_BASE_URL) return null
+    return `${PUBLIC_ASSETS_BASE_URL}/${s3Key}`
+  }
+
   try {
-    const page = parseInt(req.query.page as string) || 1
-    const limit = parseInt(req.query.limit as string) || 10
-    const skip = (page - 1) * limit
-    const cacheKey = cache.buildKey('public', 'page', page, 'limit', limit)
+    if (style && !VALID_SVG_STYLES.includes(style as SvgStyle)) {
+      return res.status(400).json({
+        error: `Invalid style. Must be one of: ${VALID_SVG_STYLES.join(', ')}`,
+      })
+    }
 
-    const { publicGenerations, totalCount, totalPages, hasMore } =
-      await cache.getOrSetJson(
-        cacheKey,
-        async () => {
-          const totalCount = await prisma.svgGeneration.count({
-            where: { privacy: false },
-          })
+    if (model && !VALID_MODELS.includes(model as AiModel)) {
+      return res.status(400).json({
+        error: `Invalid model. Must be one of: ${VALID_MODELS.join(', ')}`,
+      })
+    }
 
-          const totalPages = Math.ceil(totalCount / limit) || 0
-          const hasMore = page < totalPages
+    const where = {
+      privacy: false,
+      ...(style ? { style } : {}),
+      ...(model ? { model } : {}),
+    }
 
-          const publicGenerations = await prisma.svgGeneration.findMany({
-            where: { privacy: false },
-            orderBy: { createdAt: 'desc' },
-            skip: skip,
-            take: limit,
-            select: {
-              id: true,
-              prompt: true,
-              style: true,
-              model: true,
-              privacy: true,
-              creditsUsed: true,
-              createdAt: true,
-            },
-          })
-
-          return {
-            publicGenerations,
-            totalCount,
-            totalPages,
-            hasMore,
-            page,
-            limit,
-          }
+    const fetchPage = async (cursor?: string) => {
+      const publicGenerations = await prisma.svgGeneration.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          prompt: true,
+          style: true,
+          model: true,
+          createdAt: true,
+          s3Key: true,
         },
-        { ttlSeconds: 60 }
-      )
+      })
 
-    res.json({
-      publicGenerations,
-      pagination: { currentPage: page, totalPages, totalCount, limit, hasMore },
-    })
+      const hasMore = publicGenerations.length > limit
+      const items = hasMore ? publicGenerations.slice(0, -1) : publicGenerations
+      const newNextCursor = hasMore ? items[items.length - 1]!.id : null
+
+      return {
+        publicGenerations: items.map((generation) => ({
+          id: generation.id,
+          prompt: generation.prompt,
+          style: generation.style,
+          model: generation.model,
+          createdAt: generation.createdAt,
+          svgUrl: buildPublicSvgUrl(generation.s3Key),
+        })),
+        nextCursor: newNextCursor,
+      }
+    }
+
+    if (isFirstPage) {
+      const cached = await cache.getOrSetJson(
+        cacheKey,
+        async () => fetchPage(undefined),
+        { ttlSeconds: 60 },
+      )
+      // Cache key versioning should prevent old shapes, but keep this defensive.
+      if (
+        cached &&
+        typeof cached === 'object' &&
+        'publicGenerations' in cached &&
+        Array.isArray((cached as any).publicGenerations)
+      ) {
+        const normalized = {
+          ...(cached as any),
+          publicGenerations: (cached as any).publicGenerations.map(
+            (generation: any) => {
+              const svgUrl =
+                typeof generation?.svgUrl === 'string'
+                  ? generation.svgUrl
+                  : null
+
+              return {
+                id: generation?.id,
+                prompt: generation?.prompt,
+                style: generation?.style,
+                model: generation?.model,
+                createdAt: generation?.createdAt,
+                svgUrl,
+              }
+            },
+          ),
+        }
+        return res.json(normalized)
+      }
+
+      return res.json(cached)
+    }
+
+    return res.json(await fetchPage(nextCursor))
   } catch (error) {
-    logger.error({ error }, 'Error fetching public SVGs')
+    if (
+      nextCursor &&
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2025'
+    ) {
+      return res.status(400).json({
+        error: 'Invalid cursor',
+        errorCode: 'INVALID_CURSOR',
+      })
+    }
+
+    logger.error({ error }, 'Error fetching new public SVGs')
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -602,7 +648,7 @@ router.get(
       logger.error({ error, svgId: req.params.id }, 'Error fetching SVG by ID')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 export default router

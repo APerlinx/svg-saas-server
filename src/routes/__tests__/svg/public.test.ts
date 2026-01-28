@@ -85,11 +85,7 @@ describe('GET /public', () => {
 
     const cachedData = {
       publicGenerations: mockPublicGenerations,
-      totalCount: 2,
-      totalPages: 1,
-      hasMore: false,
-      page: 1,
-      limit: 10,
+      nextCursor: null,
     }
 
     ;(cache.getOrSetJson as jest.Mock).mockResolvedValue(cachedData)
@@ -99,48 +95,16 @@ describe('GET /public', () => {
     expect(res.status).toBe(200)
     expect(res.body.publicGenerations).toHaveLength(2)
     expect(res.body.publicGenerations[0].prompt).toBe('A beautiful sunset')
-    expect(res.body.pagination).toEqual({
-      currentPage: 1,
-      totalPages: 1,
-      totalCount: 2,
-      limit: 10,
-      hasMore: false,
-    })
     expect(cache.buildKey).toHaveBeenCalledWith(
-      'public',
-      'page',
-      1,
+      'public:v4:first',
+      'style',
+      'all',
+      'model',
+      'all',
       'limit',
-      10
+      50,
     )
     expect(cache.getOrSetJson).toHaveBeenCalled()
-  })
-
-  it('should handle pagination parameters', async () => {
-    const cachedData = {
-      publicGenerations: [],
-      totalCount: 25,
-      totalPages: 3,
-      hasMore: true,
-      page: 2,
-      limit: 10,
-    }
-
-    ;(cache.getOrSetJson as jest.Mock).mockResolvedValue(cachedData)
-
-    const res = await request(app).get('/api/svg/public?page=2&limit=10')
-
-    expect(res.status).toBe(200)
-    expect(res.body.pagination.currentPage).toBe(2)
-    expect(res.body.pagination.totalPages).toBe(3)
-    expect(res.body.pagination.hasMore).toBe(true)
-    expect(cache.buildKey).toHaveBeenCalledWith(
-      'public',
-      'page',
-      2,
-      'limit',
-      10
-    )
   })
 
   it('should fetch from database when cache misses', async () => {
@@ -151,7 +115,7 @@ describe('GET /public', () => {
         style: 'flat',
         model: 'gpt-4o',
         privacy: false,
-        creditsUsed: 5,
+        creditsUsed: 1,
         createdAt: new Date('2025-12-26T10:00:00Z'),
       },
     ]
@@ -160,37 +124,30 @@ describe('GET /public', () => {
     ;(cache.getOrSetJson as jest.Mock).mockImplementation(
       async (key, fetcher) => {
         return await fetcher()
-      }
+      },
     )
     ;(prisma.svgGeneration.count as jest.Mock).mockResolvedValue(1)
     ;(prisma.svgGeneration.findMany as jest.Mock).mockResolvedValue(
-      mockPublicGenerations
+      mockPublicGenerations,
     )
 
     const res = await request(app).get('/api/svg/public')
 
     expect(res.status).toBe(200)
     expect(res.body.publicGenerations).toHaveLength(1)
-    expect(prisma.svgGeneration.count).toHaveBeenCalledWith({
-      where: { privacy: false },
-    })
     expect(prisma.svgGeneration.findMany).toHaveBeenCalledWith({
       where: { privacy: false },
-      orderBy: { createdAt: 'desc' },
-      skip: 0,
-      take: 10,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 51,
       select: expect.any(Object),
     })
+    expect(res.body.nextCursor).toBeNull()
   })
 
   it('should return empty array when no public SVGs exist', async () => {
     const cachedData = {
       publicGenerations: [],
-      totalCount: 0,
-      totalPages: 0,
-      hasMore: false,
-      page: 1,
-      limit: 10,
+      nextCursor: null,
     }
 
     ;(cache.getOrSetJson as jest.Mock).mockResolvedValue(cachedData)
@@ -199,12 +156,53 @@ describe('GET /public', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.publicGenerations).toEqual([])
-    expect(res.body.pagination.totalCount).toBe(0)
+    expect(res.body.nextCursor).toBeNull()
+  })
+
+  it('should treat empty cursor as first page and use cache', async () => {
+    const cachedData = {
+      publicGenerations: [],
+      nextCursor: null,
+    }
+
+    ;(cache.getOrSetJson as jest.Mock).mockResolvedValue(cachedData)
+
+    const res = await request(app).get('/api/svg/public?cursor=')
+
+    expect(res.status).toBe(200)
+    expect(cache.buildKey).toHaveBeenCalledWith(
+      'public:v4:first',
+      'style',
+      'all',
+      'model',
+      'all',
+      'limit',
+      50,
+    )
+    expect(cache.getOrSetJson).toHaveBeenCalled()
+  })
+
+  it('should return 400 for invalid style', async () => {
+    const res = await request(app).get('/api/svg/public?style=not-a-style')
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/Invalid style/i)
+    expect(cache.getOrSetJson).not.toHaveBeenCalled()
+    expect(prisma.svgGeneration.findMany).not.toHaveBeenCalled()
+  })
+
+  it('should return 400 for invalid model', async () => {
+    const res = await request(app).get('/api/svg/public?model=not-a-model')
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/Invalid model/i)
+    expect(cache.getOrSetJson).not.toHaveBeenCalled()
+    expect(prisma.svgGeneration.findMany).not.toHaveBeenCalled()
   })
 
   it('should return 500 on database error', async () => {
     ;(cache.getOrSetJson as jest.Mock).mockRejectedValue(
-      new Error('Database error')
+      new Error('Database error'),
     )
 
     const res = await request(app).get('/api/svg/public')
@@ -216,11 +214,7 @@ describe('GET /public', () => {
   it('should use default pagination values when not provided', async () => {
     const cachedData = {
       publicGenerations: [],
-      totalCount: 0,
-      totalPages: 0,
-      hasMore: false,
-      page: 1,
-      limit: 10,
+      nextCursor: null,
     }
 
     ;(cache.getOrSetJson as jest.Mock).mockResolvedValue(cachedData)
@@ -229,11 +223,13 @@ describe('GET /public', () => {
 
     expect(res.status).toBe(200)
     expect(cache.buildKey).toHaveBeenCalledWith(
-      'public',
-      'page',
-      1,
+      'public:v4:first',
+      'style',
+      'all',
+      'model',
+      'all',
       'limit',
-      10
+      50,
     )
   })
 })
