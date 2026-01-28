@@ -118,7 +118,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         ) {
           logger.debug(
             { jobId, status: jobRecord.status },
-            'Job already succeeded, skipping'
+            'Job already succeeded, skipping',
           )
 
           if (jobRecord.generationId) {
@@ -156,7 +156,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         if (claimResult.count === 0) {
           logger.warn(
             { jobId },
-            'Job already being processed by another worker'
+            'Job already being processed by another worker',
           )
           return
         }
@@ -212,7 +212,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         const svg = await generateSvg(
           jobRecord.prompt,
           jobRecord.style ?? DEFAULT_STYLE,
-          jobRecord.model
+          jobRecord.model,
         )
         await job.updateProgress(75)
         const cleanSvg = sanitizeSvg(svg)
@@ -278,11 +278,23 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
 
         if (!jobRecord.privacy) {
           try {
-            await cache.del(cache.buildKey('public', 'page', 1, 'limit', 10))
+            // Best-effort invalidation for the most common first-page gallery query.
+            // Other variants (filters/limit) rely on the short TTL.
+            await cache.del(
+              cache.buildKey(
+                'public:v4:first',
+                'style',
+                'all',
+                'model',
+                'all',
+                'limit',
+                50,
+              ),
+            )
           } catch (cacheError) {
             logger.warn(
               { error: cacheError, jobId },
-              'Failed to invalidate cache, but job succeeded'
+              'Failed to invalidate cache, but job succeeded',
             )
           }
         }
@@ -297,7 +309,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
             errorCode: mapped.code,
             jobId: job.data.jobId,
           },
-          'SVG generation job failed'
+          'SVG generation job failed',
         )
 
         if (IS_PRODUCTION && process.env.SENTRY_DSN) {
@@ -312,7 +324,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
     {
       connection: workerConnection,
       concurrency: Number.isNaN(concurrency) ? 2 : concurrency,
-    }
+    },
   )
 
   worker.on('completed', (job) => {
@@ -350,7 +362,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
 
       logger.warn(
         { jobId: job.id, error: err, attempt: job.attemptsMade },
-        'Job failed, will retry'
+        'Job failed, will retry',
       )
       return
     }
@@ -389,7 +401,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         if (refunded) {
           logger.info(
             { jobId: job.id },
-            'Refunded credit after permanent failure'
+            'Refunded credit after permanent failure',
           )
         }
       }
@@ -414,7 +426,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
       }
       logger.error(
         { jobId: job.id, error: mapped.message, errorCode: mapped.code },
-        'Job permanently failed after retries'
+        'Job permanently failed after retries',
       )
     }
   })

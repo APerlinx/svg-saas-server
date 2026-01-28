@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for middleware/auth.ts</title>
+    <title>Code coverage report for lib/s3.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../prettify.css" />
     <link rel="stylesheet" href="../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../index.html">All files</a> / <a href="index.html">middleware</a> auth.ts</h1>
+        <h1><a href="../index.html">All files</a> / <a href="index.html">lib</a> s3.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">18.18% </span>
+                <span class="strong">61.53% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>6/33</span>
+                <span class='fraction'>8/13</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/32</span>
+                <span class='fraction'>0/7</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/2</span>
+                <span class='fraction'>0/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">12.9% </span>
+                <span class="strong">61.53% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>4/31</span>
+                <span class='fraction'>8/13</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line medium'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -124,7 +124,15 @@
 <a name='L59'></a><a href='#L59'>59</a>
 <a name='L60'></a><a href='#L60'>60</a>
 <a name='L61'></a><a href='#L61'>61</a>
-<a name='L62'></a><a href='#L62'>62</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -133,118 +141,116 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Request, Response, NextFunction } from 'express'
-import jwt from 'jsonwebtoken'
-import { JWT_SECRET } from '../config/env'
-import type { JwtPayload } from '../types/express'
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// src/lib/s3.ts
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { AWS_REGION, S3_BUCKET, S3_SIGNED_URL_TTL } from '../config/env'
 &nbsp;
-export const authMiddleware = <span class="fstat-no" title="function not covered" >(</span>
-  req: Request,
-  res: Response,
-  next: NextFunction
-) =&gt; {
-<span class="cstat-no" title="statement not covered" >  try {</span>
-    let token = <span class="cstat-no" title="statement not covered" >req.cookies?.token</span>
+// Credentials are resolved automatically by the AWS SDK
+const s3 = new S3Client({
+  region: AWS_REGION,
+})
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    if (!token) {</span>
-      const authHeader = <span class="cstat-no" title="statement not covered" >req.headers.authorization</span>
-<span class="cstat-no" title="statement not covered" >      if (authHeader?.startsWith('Bearer ')) {</span>
-<span class="cstat-no" title="statement not covered" >        token = authHeader.substring(7)</span>
-      }
-    }
+export async function <span class="fstat-no" title="function not covered" >uploadSvg(</span>{
+  key,
+  svg,
+  contentType = <span class="branch-0 cbranch-no" title="branch not covered" >'image/svg+xml; charset=utf-8',</span>
+  cacheControl,
+}: {
+  key: string
+  svg: string
+  contentType?: string
+  cacheControl?: string
+}) {
+<span class="cstat-no" title="statement not covered" >  await s3.send(</span>
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: svg,
+      ContentType: contentType,
+      ...(cacheControl ? { CacheControl: cacheControl } : {}),
+      ACL: undefined,
+    })
+  )
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    if (!token) {</span>
-<span class="cstat-no" title="statement not covered" >      return res.status(401).json({ error: 'No token provided' })</span>
-    }
-&nbsp;
-    const decoded = <span class="cstat-no" title="statement not covered" >jwt.verify(token, JWT_SECRET) as JwtPayload</span>
-<span class="cstat-no" title="statement not covered" >    req.user = decoded</span>
-<span class="cstat-no" title="statement not covered" >    next()</span>
-  } catch (error) {
-<span class="cstat-no" title="statement not covered" >    if (error instanceof jwt.JsonWebTokenError) {</span>
-<span class="cstat-no" title="statement not covered" >      return res.status(401).json({ error: 'Invalid token' })</span>
-    }
-<span class="cstat-no" title="statement not covered" >    if (error instanceof jwt.TokenExpiredError) {</span>
-<span class="cstat-no" title="statement not covered" >      return res.status(401).json({ error: 'Token expired' })</span>
-    }
-<span class="cstat-no" title="statement not covered" >    return res.status(500).json({ error: 'Internal server error' })</span>
-  }
+<span class="cstat-no" title="statement not covered" >  return `s3://${S3_BUCKET}/${key}`</span>
 }
 &nbsp;
-export const optionalAuthMiddleware = <span class="fstat-no" title="function not covered" >(</span>
-  req: Request,
-  res: Response,
-  next: NextFunction
-) =&gt; {
-<span class="cstat-no" title="statement not covered" >  try {</span>
-    let token = <span class="cstat-no" title="statement not covered" >req.cookies?.token</span>
-<span class="cstat-no" title="statement not covered" >    if (!token) {</span>
-      const authHeader = <span class="cstat-no" title="statement not covered" >req.headers.authorization</span>
-<span class="cstat-no" title="statement not covered" >      if (authHeader?.startsWith('Bearer ')) {</span>
-<span class="cstat-no" title="statement not covered" >        token = authHeader.substring(7)</span>
-      }
-    }
+export async function <span class="fstat-no" title="function not covered" >deleteSvg(</span>key: string) {
+<span class="cstat-no" title="statement not covered" >  await s3.send(</span>
+    new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+    })
+  )
+}
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    if (token) {</span>
-      const decoded = <span class="cstat-no" title="statement not covered" >jwt.verify(token, JWT_SECRET) as JwtPayload</span>
-<span class="cstat-no" title="statement not covered" >      req.user = decoded</span>
-    }
-<span class="cstat-no" title="statement not covered" >    next()</span>
-  } catch (error) {
-<span class="cstat-no" title="statement not covered" >    next()</span>
-  }
+export async function <span class="fstat-no" title="function not covered" >getDownloadUrl(</span>key: string) {
+<span class="cstat-no" title="statement not covered" >  return getSignedUrl(</span>
+    s3,
+    new GetObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+    }),
+    { expiresIn: S3_SIGNED_URL_TTL ?? 60 }
+  )
+}
+&nbsp;
+export function <span class="fstat-no" title="function not covered" >buildGenerationSvgKey(</span>userId: string, jobId: string) {
+<span class="cstat-no" title="statement not covered" >  return `users/${userId}/jobs/${jobId}/chatsvg.svg`</span>
 }
 &nbsp;</pre></td></tr></table></pre>
 

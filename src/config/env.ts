@@ -66,7 +66,16 @@ export const S3_SIGNED_URL_TTL = process.env.S3_SIGNED_URL_TTL
   : 60 // default to 60 seconds
 if (IS_PRODUCTION && (!AWS_REGION || !S3_BUCKET)) {
   throw new Error(
-    'AWS_REGION and S3_BUCKET must be defined in .env file for production'
+    'AWS_REGION and S3_BUCKET must be defined in .env file for production',
   )
 }
 export const IS_S3_ENABLED = !!(AWS_REGION && S3_BUCKET)
+
+// Public assets (e.g. CloudFront) base URL used for gallery rendering.
+// Example: https://dxxxx.cloudfront.net or https://assets.chatsvg.dev
+// Optional so local/dev/test can run without CloudFront.
+export const PUBLIC_ASSETS_BASE_URL = (
+  process.env.PUBLIC_ASSETS_BASE_URL ||
+  process.env.CLOUDFRONT_ASSETS_BASE_URL ||
+  ''
+).replace(/\/+$/, '')
