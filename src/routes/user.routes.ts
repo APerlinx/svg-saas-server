@@ -1,12 +1,18 @@
 import { Router, Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
+import * as Sentry from '@sentry/node'
 import prisma from '../lib/prisma'
 import { authMiddleware } from '../middleware/auth'
 import { getUserId, requireUserId } from '../utils/getUserId'
 import { logger } from '../lib/logger'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, AiModel } from '../constants/models'
-import { PUBLIC_ASSETS_BASE_URL } from '../config/env'
+import {
+  IS_PRODUCTION,
+  IS_S3_ENABLED,
+  PUBLIC_ASSETS_BASE_URL,
+} from '../config/env'
+import { deleteSvg } from '../lib/s3'
 
 const router = Router()
 
@@ -180,6 +186,112 @@ router.get(
         { error, userId: getUserId(req) },
         'Error fetching SVG history',
       )
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  },
+)
+
+router.delete(
+  '/generations/:id',
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const userId = requireUserId(req)
+      const generationId = req.params.id
+      if (typeof generationId !== 'string' || !generationId.trim()) {
+        return res.status(400).json({ error: 'Invalid generation id' })
+      }
+
+      let s3Key: string | null | undefined
+
+      const generation = await prisma.svgGeneration.findFirst({
+        where: { id: generationId, userId },
+        select: { s3Key: true },
+      })
+
+      s3Key = generation?.s3Key
+
+      if (!generation) {
+        return res.status(404).json({ error: 'SVG generation not found' })
+      }
+
+      const deleteResult = await prisma.svgGeneration.deleteMany({
+        where: { id: generationId, userId },
+      })
+
+      if (deleteResult.count !== 1) {
+        logger.warn(
+          { generationId, userId, s3Key, deleteCount: deleteResult.count },
+          'DB delete returned unexpected count for SVG generation',
+        )
+
+        if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+          Sentry.captureMessage(
+            'DB delete returned unexpected count for SVG generation',
+            {
+              level: 'warning',
+              tags: {
+                feature: 'delete_generation',
+                phase: 'db_delete',
+              },
+              extra: {
+                generationId,
+                userId,
+                s3Key,
+                deleteCount: deleteResult.count,
+              },
+            },
+          )
+        }
+
+        return res.status(404).json({ error: 'SVG generation not found' })
+      }
+
+      if (IS_S3_ENABLED && generation.s3Key) {
+        try {
+          await deleteSvg(generation.s3Key)
+        } catch (error) {
+          logger.error(
+            { error, generationId, userId, s3Key: generation.s3Key },
+            'Failed to delete SVG from S3 after DB deletion',
+          )
+
+          if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+            Sentry.captureException(error, {
+              tags: {
+                feature: 'delete_generation',
+                phase: 's3_delete',
+              },
+              extra: {
+                generationId,
+                userId,
+                s3Key: generation.s3Key,
+              },
+            })
+          }
+        }
+      }
+
+      res.json({ success: true })
+    } catch (error) {
+      logger.error(
+        { error, userId: getUserId(req) },
+        'Error deleting SVG generation',
+      )
+
+      if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+        Sentry.captureException(error, {
+          tags: {
+            feature: 'delete_generation',
+            phase: 'handler',
+          },
+          extra: {
+            generationId: req.params.id,
+            userId: getUserId(req),
+          },
+        })
+      }
+
       res.status(500).json({ error: 'Internal server error' })
     }
   },
