@@ -20,7 +20,7 @@ import {
   enqueueSvgGenerationJob,
   svgGenerationQueue,
 } from '../jobs/svgGenerationQueue'
-import { getDownloadUrl } from '../lib/s3'
+import { getDownloadUrl, getSvgSourceFromS3 } from '../lib/s3'
 
 const router = Router()
 
@@ -467,17 +467,6 @@ router.get(
 )
 
 router.get('/public', async (req: Request, res: Response) => {
-  // This endpoint is server-side cached in Redis; avoid browser caching/ETag 304
-  // surprises that can show stale payloads during development.
-  res.set('Cache-Control', 'no-store')
-
-  if (!IS_PRODUCTION) {
-    res.set(
-      'x-public-assets-base-url',
-      PUBLIC_ASSETS_BASE_URL ? 'set' : 'unset',
-    )
-  }
-
   const rawLimit = Number(req.query.limit)
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(rawLimit, 1), 100)
@@ -617,36 +606,55 @@ router.get('/public', async (req: Request, res: Response) => {
 })
 
 router.get(
-  '/:id',
+  '/:id/source',
   optionalAuthMiddleware,
   async (req: Request, res: Response) => {
     try {
       const currentUserId = getUserId(req)
-      const { id } = req.params
 
-      if (!id || id.trim() === '') {
+      const id =
+        typeof req.params.id === 'string' ? req.params.id.trim() : undefined
+
+      if (!id) {
         return res.status(400).json({ error: 'Invalid SVG ID' })
       }
 
-      const svgGeneration = await prisma.svgGeneration.findUnique({
+      const generation = await prisma.svgGeneration.findUnique({
         where: { id },
+        select: {
+          id: true,
+          userId: true,
+          privacy: true,
+          s3Key: true,
+          svg: true,
+        },
       })
 
-      if (!svgGeneration) {
+      if (!generation) {
         return res.status(404).json({ error: 'SVG not found' })
       }
 
-      const isPublic = svgGeneration.privacy === false
-      const isOwner = currentUserId === svgGeneration.userId
-
-      if (!isPublic && !isOwner) {
-        return res.status(404).json({ error: 'SVG not found' })
+      if (generation.privacy && generation.userId !== currentUserId) {
+        return res.status(403).json({ error: 'Access denied to this SVG' })
       }
 
-      res.json({ svgGeneration })
+      let svg: string | null = null
+
+      if (generation.s3Key) {
+        svg = await getSvgSourceFromS3(generation.s3Key)
+      } else if (generation.svg) {
+        // Dev/legacy fallback when S3 storage is disabled.
+        svg = generation.svg
+      }
+
+      res.set('Cache-Control', 'no-store')
+      return res.json({ id: generation.id, svg: svg ?? null })
     } catch (error) {
-      logger.error({ error, svgId: req.params.id }, 'Error fetching SVG by ID')
-      res.status(500).json({ error: 'Internal server error' })
+      logger.error(
+        { error, svgId: req.params.id, userId: getUserId(req) },
+        'Error fetching SVG source by ID',
+      )
+      return res.status(500).json({ error: 'Internal server error' })
     }
   },
 )
