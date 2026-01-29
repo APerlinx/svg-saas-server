@@ -6,6 +6,7 @@ import userRoutes from './routes/user.routes'
 import authRoutes from './routes/auth.routes'
 import svgRoutes from './routes/svg.routes'
 import notificationRoutes from './routes/notification.routes'
+import supportRoutes from './routes/support.routes'
 
 import passport from './config/passport'
 import { IS_PRODUCTION } from './config/env'
@@ -65,7 +66,7 @@ app.use(
     customProps: (req) => ({
       requestId: req.requestId,
     }),
-  })
+  }),
 )
 
 app.get('/api/health', (req, res) => {
@@ -85,7 +86,7 @@ app.get('/api/ready', async (req, res) => {
     } catch (redisError) {
       logger.warn(
         { error: redisError },
-        'Redis check failed in readiness probe'
+        'Redis check failed in readiness probe',
       )
     }
 
@@ -115,18 +116,19 @@ app.use('/api/auth', authRoutes)
 app.use('/api/user', validateCsrfToken, userRoutes)
 app.use('/api/svg', validateCsrfToken, svgRoutes)
 app.use('/api/notification', validateCsrfToken, notificationRoutes)
+app.use('/api/support', validateCsrfToken, supportRoutes)
 
 app.use(
   (
     err: any,
     req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ) => {
     // Log error with Pino
     logger.error(
       { error: err, path: req.path, requestId: req.requestId },
-      'Unhandled error'
+      'Unhandled error',
     )
 
     // Capture error in Sentry (production only)
@@ -138,7 +140,7 @@ app.use(
       error: 'Internal server error',
       requestId: req.requestId,
     })
-  }
+  },
 )
 
 export default app
