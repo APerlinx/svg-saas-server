@@ -140,3 +140,10 @@ export const downloadLimiter = createRateLimiter({
     return req.ip || 'unknown'
   },
 })
+
+export const supportMessageLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5, // 5 submissions per IP per 10 minutes
+  message: 'Too many support messages. Please try again later.',
+  keyPrefix: 'rl:support',
+})

@@ -1,13 +1,14 @@
 import { Resend } from 'resend'
 import { RESEND_API_KEY } from '../config/env'
 import { FRONTEND_URL } from '../config/env'
+import { SUPPORT_INBOX_EMAIL } from '../config/env'
 import { logger } from '../lib/logger'
 
 const resend = new Resend(RESEND_API_KEY)
 
 export async function sendPasswordResetEmail(
   email: string,
-  resetToken: string
+  resetToken: string,
 ) {
   const resetUrl = `${
     FRONTEND_URL || 'http://localhost:5173'
@@ -15,7 +16,7 @@ export async function sendPasswordResetEmail(
 
   try {
     await resend.emails.send({
-      from: 'chatSVG <onboarding@resend.dev>',
+      from: 'chatSVG <noreply@chatsvg.dev>',
       to: email,
       subject: 'Reset Your Password',
       html: `
@@ -63,7 +64,7 @@ export async function sendPasswordResetEmail(
 export async function sendWelcomeEmail(email: string, name: string) {
   try {
     await resend.emails.send({
-      from: 'chatSVG <onboarding@resend.dev>',
+      from: 'chatSVG <noreply@chatsvg.dev>',
       to: email,
       subject: 'Welcome to chatSVG',
       html: `
@@ -131,5 +132,113 @@ export async function sendWelcomeEmail(email: string, name: string) {
     logger.info({ email }, 'Welcome email sent')
   } catch (error) {
     logger.error({ error, email }, 'Error sending welcome email')
+  }
+}
+
+export type SupportMessageType = 'contact' | 'bug' | 'idea'
+
+export type SubmitSupportMessagePayload = {
+  type: SupportMessageType
+  subject: string
+  message: string
+  email: string
+  userId?: string
+  contextUrl?: string
+  userAgent?: string
+}
+
+function supportTypeTag(type: SupportMessageType): string {
+  switch (type) {
+    case 'bug':
+      return '[BUG]'
+    case 'idea':
+      return '[IDEA]'
+    case 'contact':
+    default:
+      return '[MESSAGE]'
+  }
+}
+
+export async function sendSupportMessageEmail(
+  payload: SubmitSupportMessagePayload,
+  meta?: { ip?: string; requestId?: string },
+) {
+  const tag = supportTypeTag(payload.type)
+  const subject = `${tag} ${payload.subject}`.trim()
+
+  try {
+    await resend.emails.send({
+      from: 'chatSVG <noreply@chatsvg.dev>',
+      to: SUPPORT_INBOX_EMAIL,
+      replyTo: payload.email,
+      subject,
+      text: [
+        `${tag} Support message`,
+        '',
+        `Subject: ${payload.subject}`,
+        `Type: ${payload.type}`,
+        `From email: ${payload.email || 'N/A'}`,
+        `User ID: ${payload.userId || 'N/A'}`,
+        `Context URL: ${payload.contextUrl || 'N/A'}`,
+        `User Agent: ${payload.userAgent || 'N/A'}`,
+        `IP: ${meta?.ip || 'N/A'}`,
+        `Request ID: ${meta?.requestId || 'N/A'}`,
+        '',
+        'Message:',
+        payload.message,
+      ].join('\n'),
+    })
+
+    logger.info(
+      { type: payload.type, hasEmail: !!payload.email },
+      'Support message email sent',
+    )
+  } catch (error) {
+    logger.error({ error }, 'Error sending support message email')
+    throw new Error('Failed to send email')
+  }
+}
+
+export async function sendSupportConfirmationEmail(
+  email: string,
+  type: SupportMessageType,
+  subject: string,
+) {
+  const tag = supportTypeTag(type)
+  try {
+    await resend.emails.send({
+      from: 'chatSVG <noreply@chatsvg.dev>',
+      to: email,
+      subject: `We received your message ${tag}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .footer { margin-top: 30px; font-size: 12px; color: #666; }
+              .subject { padding: 12px; background: #f5f5f5; border-radius: 6px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <p>Thanks — your message was received.</p>
+              <p>We’ll take a look as soon as we can.</p>
+              <div class="subject">
+                <div><strong>Type:</strong> ${tag.replace(/\[|\]/g, '')}</div>
+                <div><strong>Subject:</strong> ${subject}</div>
+              </div>
+              <div class="footer">
+                <p>chatSVG - AI-powered SVG generation</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    })
+    logger.info({ email, type }, 'Support confirmation email sent')
+  } catch (error) {
+    logger.error({ error, email }, 'Error sending support confirmation email')
   }
 }

@@ -37,6 +37,10 @@ if (!RESEND_API_KEY) {
   throw new Error('RESEND_API_KEY must be defined in .env file')
 }
 
+// Support inbox (where contact/bug/idea submissions are delivered)
+export const SUPPORT_INBOX_EMAIL =
+  process.env.SUPPORT_INBOX_EMAIL || 'chatsvg.dev@gmail.com'
+
 // Redis Configuration
 export const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
 
