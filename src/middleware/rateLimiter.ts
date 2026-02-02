@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express'
 import { redisClient } from '../lib/redis'
-import { IS_TEST } from '../config/env'
+import { IS_TEST, IS_PRODUCTION } from '../config/env'
 import { logger } from '../lib/logger'
+import * as Sentry from '@sentry/node'
 
 const RATE_LIMIT_LUA = `
   local key = KEYS[1]              
@@ -67,9 +68,39 @@ export const createRateLimiter = (options: RateLimitOptions) => {
       res.setHeader('X-RateLimit-Remaining', Math.max(0, remaining).toString())
       res.setHeader('X-RateLimit-Reset', (Date.now() + ttl * 1000).toString())
 
-      if (remaining < 0) {
+      if (remaining <= 0) {
         res.setHeader('Retry-After', ttl.toString())
-        logger.warn({ key, identifier, limit: max, ttl }, 'Rate limit exceeded')
+        logger.warn(
+          {
+            key,
+            identifier,
+            limit: max,
+            ttl,
+            ip: req.ip,
+            userAgent: req.get('user-agent'),
+            path: req.path,
+            method: req.method,
+            requestId: (req as any).requestId,
+          },
+          'Rate limit exceeded',
+        )
+
+        // Alert on excessive violations in production
+        if (IS_PRODUCTION && process.env.SENTRY_DSN) {
+          Sentry.captureMessage('Rate limit exceeded', {
+            level: 'warning',
+            tags: {
+              rate_limit: keyPrefix,
+              ip: identifier,
+              path: req.path,
+            },
+            extra: {
+              limit: max,
+              windowMs,
+              userAgent: req.get('user-agent'),
+            },
+          })
+        }
 
         return res.status(429).json({ error: message })
       }

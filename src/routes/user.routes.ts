@@ -12,7 +12,7 @@ import {
   IS_S3_ENABLED,
   PUBLIC_ASSETS_BASE_URL,
 } from '../config/env'
-import { deleteSvg } from '../lib/s3'
+import { deleteSvg, getDownloadUrl } from '../lib/s3'
 
 const router = Router()
 
@@ -84,8 +84,20 @@ router.get(
 
     const isFirstPage = !cursor
 
-    const buildSvgUrl = (s3Key?: string | null) => {
+    const buildSvgUrl = async (s3Key?: string | null, isPrivate?: boolean) => {
       if (!s3Key) return null
+
+      // Private SVGs: use pre-signed URLs with expiration
+      if (isPrivate) {
+        try {
+          return await getDownloadUrl(s3Key, 15 * 60) // 15 minutes
+        } catch (error) {
+          logger.error({ error, s3Key }, 'Failed to generate pre-signed URL')
+          return null
+        }
+      }
+
+      // Public SVGs: use CloudFront URLs (permanent, shareable)
       if (!PUBLIC_ASSETS_BASE_URL) return null
       return `${PUBLIC_ASSETS_BASE_URL}/${s3Key}`
     }
@@ -150,8 +162,8 @@ router.get(
         const items = hasMore ? generations.slice(0, -1) : generations
         const nextCursor = hasMore ? items[items.length - 1]!.id : null
 
-        return {
-          generations: items.map((g) => ({
+        const generationsWithUrls = await Promise.all(
+          items.map(async (g) => ({
             id: g.id,
             prompt: g.prompt,
             style: g.style,
@@ -159,8 +171,12 @@ router.get(
             privacy: g.privacy,
             creditsUsed: g.creditsUsed,
             createdAt: g.createdAt,
-            svgUrl: buildSvgUrl(g.s3Key),
+            svgUrl: await buildSvgUrl(g.s3Key, g.privacy),
           })),
+        )
+
+        return {
+          generations: generationsWithUrls,
           nextCursor,
         }
       }

@@ -219,6 +219,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         await job.updateProgress(85)
 
         const generationId = await prisma.$transaction(async (tx) => {
+          // TODO: oversized transaction- job shouldn't fail if S3 upload fails / update s3 fields fails - refactor as needed
           const generation = await tx.svgGeneration.create({
             data: {
               userId: jobRecord.userId,
