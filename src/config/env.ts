@@ -11,6 +11,23 @@ export const IS_PRODUCTION = NODE_ENV === 'production'
 export const IS_DEVELOPMENT = NODE_ENV === 'development'
 export const IS_TEST = NODE_ENV === 'test'
 
+// Reverse proxy / CDN configuration.
+export const TRUST_PROXY: boolean | number = (() => {
+  const raw = process.env.TRUST_PROXY
+  if (raw == null || raw.trim() === '') {
+    return IS_PRODUCTION ? 1 : false
+  }
+
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'true') return true
+  if (normalized === 'false') return false
+
+  const hops = Number(normalized)
+  if (Number.isFinite(hops) && hops >= 0) return hops
+  // TODO: Check in production if number of hops is valid? -> check "x-forwarded-for" header
+  return IS_PRODUCTION ? 1 : false
+})()
+
 // Frontend URL
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 

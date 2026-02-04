@@ -115,7 +115,7 @@ router.post(
         user.id,
         REFRESH_TOKEN_EXPIRY_DAYS,
         getUserIp(req),
-        req.headers['user-agent'] as string | undefined
+        req.headers['user-agent'] as string | undefined,
       )
 
       // Send welcome email
@@ -139,7 +139,7 @@ router.post(
       logger.error({ error }, 'Registration error')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 // User login
@@ -177,11 +177,30 @@ router.post(
       })
 
       if (!user) {
+        logger.warn(
+          {
+            email,
+            ip: getUserIp(req),
+            userAgent: req.get('user-agent'),
+            requestId: req.requestId,
+          },
+          'Login failed: user not found',
+        )
         return res.status(401).json({ error: 'Invalid credentials' })
       }
 
       const isMatch = await bcrypt.compare(password, user.passwordHash!)
       if (!isMatch) {
+        logger.warn(
+          {
+            userId: user.id,
+            email,
+            ip: getUserIp(req),
+            userAgent: req.get('user-agent'),
+            requestId: req.requestId,
+          },
+          'Login failed: incorrect password',
+        )
         return res.status(401).json({ error: 'Invalid credentials' })
       }
 
@@ -196,7 +215,7 @@ router.post(
         user.id,
         expiryDays,
         getUserIp(req),
-        req.headers['user-agent'] as string | undefined
+        req.headers['user-agent'] as string | undefined,
       )
 
       // Set both cookies
@@ -209,7 +228,7 @@ router.post(
       logger.error({ error, userId: getUserId(req) }, 'Logout error')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 // User logout
@@ -242,7 +261,7 @@ router.post(
       clearAuthCookie(res)
       res.json({ message: 'Logged out successfully' })
     }
-  }
+  },
 )
 
 // Refresh access token
@@ -257,7 +276,7 @@ router.post(
         hasAccessToken: !!req.cookies.token,
         cookieCount: Object.keys(req.cookies).length,
       },
-      'Request cookies'
+      'Request cookies',
     )
     try {
       const oldRefreshToken = req.cookies.refreshToken
@@ -268,7 +287,7 @@ router.post(
         oldRefreshToken,
         REFRESH_TOKEN_EXPIRY_DAYS,
         getUserIp(req),
-        req.headers['user-agent'] as string | undefined
+        req.headers['user-agent'] as string | undefined,
       )
 
       if (!rotated.ok) {
@@ -279,7 +298,7 @@ router.post(
               userAgent: req.headers['user-agent'],
               requestId: req.requestId,
             },
-            'SECURITY: Refresh token reuse detected - token family revoked'
+            'SECURITY: Refresh token reuse detected - token family revoked',
           )
           clearAuthCookie(res)
         }
@@ -304,7 +323,7 @@ router.post(
       logger.error({ error }, 'Token refresh error')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 // Get active sessions
@@ -339,7 +358,7 @@ router.delete(
     })
 
     res.json({ message: 'Session revoked' })
-  }
+  },
 )
 
 // Get current authenticated user
@@ -368,7 +387,7 @@ router.get(
     }
 
     res.json(safeUser)
-  }
+  },
 )
 
 // Forgot password
@@ -390,7 +409,7 @@ router.post(
       if (!user) {
         logger.info(
           { email },
-          'Password reset requested for non-existent email'
+          'Password reset requested for non-existent email',
         )
         return res.status(200).json({
           message: 'If that email is registered, a reset link has been sent.',
@@ -415,7 +434,7 @@ router.post(
       logger.error({ error }, 'Forgot password error')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 // Reset password
@@ -445,6 +464,14 @@ router.post(
       })
 
       if (!user) {
+        logger.warn(
+          {
+            ip: getUserIp(req),
+            userAgent: req.get('user-agent'),
+            requestId: req.requestId,
+          },
+          'Password reset failed: invalid or expired token',
+        )
         return res.status(400).json({ error: 'Invalid or expired reset token' })
       }
 
@@ -468,7 +495,7 @@ router.post(
       logger.error({ error }, 'Reset password error')
       res.status(500).json({ error: 'Internal server error' })
     }
-  }
+  },
 )
 
 // Google OAuth
@@ -477,7 +504,7 @@ router.get('/google', (req: Request, res: Response, next) => {
 
   // Store redirectUrl in state parameter to retrieve after OAuth callback
   const state = Buffer.from(
-    JSON.stringify({ redirectUrl, timestamp: Date.now() })
+    JSON.stringify({ redirectUrl, timestamp: Date.now() }),
   ).toString('base64')
 
   // Redirect user to Google's login page
@@ -515,7 +542,7 @@ router.get(
         user.id,
         REFRESH_TOKEN_EXPIRY_DAYS,
         getUserIp(req),
-        req.headers['user-agent'] as string | undefined
+        req.headers['user-agent'] as string | undefined,
       )
 
       // Set both cookies
@@ -546,7 +573,7 @@ router.get(
       logger.error({ error }, 'Google OAuth callback error')
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
-  }
+  },
 )
 
 // GitHub OAuth
@@ -555,7 +582,7 @@ router.get('/github', (req: Request, res: Response, next) => {
 
   // Store redirectUrl in state parameter to retrieve after OAuth callback
   const state = Buffer.from(
-    JSON.stringify({ redirectUrl, timestamp: Date.now() })
+    JSON.stringify({ redirectUrl, timestamp: Date.now() }),
   ).toString('base64')
 
   // Redirect user to GitHub's login page
@@ -593,7 +620,7 @@ router.get(
         user.id,
         REFRESH_TOKEN_EXPIRY_DAYS,
         getUserIp(req),
-        req.headers['user-agent'] as string | undefined
+        req.headers['user-agent'] as string | undefined,
       )
 
       // Set both cookies
@@ -624,7 +651,7 @@ router.get(
       logger.error({ error }, 'GitHub OAuth callback error')
       res.redirect(`${FRONTEND_URL}/signin?error=server_error`)
     }
-  }
+  },
 )
 
 export default router

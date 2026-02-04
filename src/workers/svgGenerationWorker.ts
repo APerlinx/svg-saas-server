@@ -71,6 +71,8 @@ function mapErrorToCode(error: unknown): { code: string; message: string } {
 
 const workerConnection = createBullMqConnection('svg-generation-worker')
 
+// Top-level async bootstrap. The leading semicolon protects against ASI edge-cases if the previous
+// line ever changes to a statement that could be (incorrectly) treated as callable.
 ;(async () => {
   await connectRedis().catch((error: unknown) => {
     logger.error({ error }, 'Worker failed to connect to Redis cache client')
@@ -92,6 +94,9 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
 
       try {
         await job.updateProgress(5)
+
+        // The DB is the source of truth for job state. The worker is designed to be safe to retry:
+        // we always re-read state and short-circuit if work already completed.
         const jobRecord = await prisma.generationJob.findUnique({
           where: { id: jobId },
           select: {
@@ -116,6 +121,7 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           jobRecord.generationId ||
           jobRecord.status === GenerationJobStatus.SUCCEEDED
         ) {
+          // Idempotency guard: if the generation was already persisted, don't generate again.
           logger.debug(
             { jobId, status: jobRecord.status },
             'Job already succeeded, skipping',
@@ -139,6 +145,8 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
           return
         }
 
+        // Claim the job for processing. Using a conditional update ensures only one worker can
+        // transition QUEUED -> RUNNING even if multiple workers receive the same BullMQ job.
         const claimResult = await prisma.generationJob.updateMany({
           where: {
             id: jobId,
@@ -162,6 +170,9 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         }
 
         if (!jobRecord.creditsCharged) {
+          // Defensive charging path: the API normally charges before enqueueing, but retries or
+          // partial failures should still charge at most once. This transaction prevents
+          // double-charging and keeps job/account state consistent.
           await job.updateProgress(10)
           const result = await prisma.$transaction(async (tx) => {
             const debitResult = await tx.user.updateMany({
@@ -209,6 +220,11 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         }
 
         await job.updateProgress(25)
+        // NOTE:
+        // On retries we currently re-generate the SVG instead of reusing a previous one.
+        // This keeps the system simpler and avoids additional staging state.
+        // If metrics show a high retry rate or significant extra LLM cost,
+        // consider persisting the first successful SVG attempt and retrying only persistence.
         const svg = await generateSvg(
           jobRecord.prompt,
           jobRecord.style ?? DEFAULT_STYLE,
@@ -219,6 +235,10 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         await job.updateProgress(85)
 
         const generationId = await prisma.$transaction(async (tx) => {
+          // We currently persist the generation and mark the job SUCCEEDED in the same transaction.
+          // This keeps the DB consistent (no succeeded job without a generationId). The tradeoff is
+          // that S3 upload is included when enabled; see TODO for decoupling if this becomes noisy.
+          // TODO: oversized transaction- job shouldn't fail if S3 upload fails / update s3 fields fails - refactor as needed
           const generation = await tx.svgGeneration.create({
             data: {
               userId: jobRecord.userId,
@@ -349,6 +369,8 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
 
     // Persist failure details for UI/status tracking.
     if (!isFinal) {
+      // Non-final failures re-queue the DB job so the next BullMQ attempt can claim it again.
+      // (BullMQ will re-run the processor from the top on each attempt.)
       await prisma.generationJob.update({
         where: { id: job.data.jobId },
         data: {
@@ -375,6 +397,8 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
 
       if (jobRecord?.userId) {
         const refunded = await prisma.$transaction(async (tx) => {
+          // Refund is idempotent: we "claim" the refund with a conditional update so retries or
+          // double-delivery of failure events don't increment credits more than once.
           const refundClaim = await tx.generationJob.updateMany({
             where: {
               id: job.data.jobId,

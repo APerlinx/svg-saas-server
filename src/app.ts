@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import * as Sentry from '@sentry/node'
+import helmet from 'helmet'
 
 import userRoutes from './routes/user.routes'
 import authRoutes from './routes/auth.routes'
@@ -9,7 +10,12 @@ import notificationRoutes from './routes/notification.routes'
 import supportRoutes from './routes/support.routes'
 
 import passport from './config/passport'
-import { IS_PRODUCTION } from './config/env'
+import {
+  IS_PRODUCTION,
+  FRONTEND_URL,
+  PUBLIC_ASSETS_BASE_URL,
+  TRUST_PROXY,
+} from './config/env'
 import cookieParser from 'cookie-parser'
 
 import { generateCsrfToken, validateCsrfToken } from './middleware/csrf'
@@ -24,6 +30,10 @@ import { redisClient } from './lib/redis'
 import { INSTANCE_ID } from './lib/instanceId'
 
 const app = express()
+
+// Behind Cloudflare / reverse proxies, req.ip is only correct if trust proxy is configured.
+// This affects rate limiting, security logging, and audit trails.
+app.set('trust proxy', TRUST_PROXY)
 
 const previewOriginRegex = process.env.FRONTEND_PREVIEW_REGEX
   ? new RegExp(process.env.FRONTEND_PREVIEW_REGEX)
@@ -44,6 +54,62 @@ const corsOptions: cors.CorsOptions = {
 
 app.use(cors(corsOptions))
 app.options(/^.*$/, cors(corsOptions))
+
+// Security headers
+const cloudFrontDomain = PUBLIC_ASSETS_BASE_URL
+  ? new URL(PUBLIC_ASSETS_BASE_URL).origin
+  : null
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'", // React/Vite inline scripts
+          "'unsafe-eval'", // Development hot reload
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'", // React inline styles, CSS-in-JS
+        ],
+        imgSrc: [
+          "'self'",
+          'data:', // Base64 images
+          'blob:', // Blob URLs
+          'https:', // CloudFront, S3 pre-signed URLs
+          ...(cloudFrontDomain ? [cloudFrontDomain] : []),
+        ],
+        connectSrc: [
+          "'self'",
+          'ws:', // WebSocket (development)
+          'wss:', // WebSocket (production)
+          ...(FRONTEND_URL ? [FRONTEND_URL] : []),
+        ],
+        fontSrc: ["'self'", 'data:', 'https:'], // Google Fonts, etc.
+        objectSrc: ["'none'"], // No Flash, Java, etc.
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"], // No iframes (prevent clickjacking)
+        formAction: ["'self'"],
+        upgradeInsecureRequests: IS_PRODUCTION ? [] : null, // Force HTTPS in production
+      },
+    },
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
+    frameguard: {
+      action: 'deny', // X-Frame-Options: DENY
+    },
+    noSniff: true, // X-Content-Type-Options: nosniff
+    xssFilter: true, // X-XSS-Protection: 1; mode=block (legacy browsers)
+    referrerPolicy: {
+      policy: 'strict-origin-when-cross-origin',
+    },
+  }),
+)
 
 app.use(express.json())
 app.use(cookieParser())

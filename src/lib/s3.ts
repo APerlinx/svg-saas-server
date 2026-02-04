@@ -48,14 +48,14 @@ export async function deleteSvg(key: string) {
   )
 }
 
-export async function getDownloadUrl(key: string) {
+export async function getDownloadUrl(key: string, expiresIn?: number) {
   return getSignedUrl(
     s3,
     new GetObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
     }),
-    { expiresIn: S3_SIGNED_URL_TTL ?? 60 },
+    { expiresIn: expiresIn ?? S3_SIGNED_URL_TTL ?? 60 },
   )
 }
 
