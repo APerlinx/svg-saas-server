@@ -14,6 +14,7 @@ import {
   IS_PRODUCTION,
   FRONTEND_URL,
   PUBLIC_ASSETS_BASE_URL,
+  TRUST_PROXY,
 } from './config/env'
 import cookieParser from 'cookie-parser'
 
@@ -29,6 +30,10 @@ import { redisClient } from './lib/redis'
 import { INSTANCE_ID } from './lib/instanceId'
 
 const app = express()
+
+// Behind Cloudflare / reverse proxies, req.ip is only correct if trust proxy is configured.
+// This affects rate limiting, security logging, and audit trails.
+app.set('trust proxy', TRUST_PROXY)
 
 const previewOriginRegex = process.env.FRONTEND_PREVIEW_REGEX
   ? new RegExp(process.env.FRONTEND_PREVIEW_REGEX)

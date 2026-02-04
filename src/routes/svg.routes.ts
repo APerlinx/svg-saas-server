@@ -152,6 +152,8 @@ router.post(
       const selectedModel = model || DEFAULT_MODEL
       const isPrivate = privacy ?? false
 
+      // Clients must send an idempotency key so retries (network/app reload) don't double-charge
+      // credits or enqueue duplicate background work for the same user action.
       const rawIdempotencyKey = req.header('x-idempotency-key')?.trim()
       if (!rawIdempotencyKey) {
         logger.warn(
@@ -175,6 +177,8 @@ router.post(
           .json({ error: 'Idempotency key must be 128 characters or fewer' })
       }
 
+      // Hash of the request parameters used to detect idempotency-key reuse with different inputs.
+      // Same key + same hash => safe duplicate; same key + different hash => reject as a conflict.
       const requestHash = computeRequestHash({
         prompt: sanitizedPrompt,
         style,
@@ -200,6 +204,8 @@ router.post(
       })
 
       if (existingJob) {
+        // If a job already exists for this idempotency key, return the existing job instead of
+        // creating another job (and charging credits again). This makes the endpoint safe to retry.
         if (existingJob.requestHash === requestHash) {
           return res
             .status(getDuplicateStatus(existingJob))
@@ -231,6 +237,8 @@ router.post(
           select: generationJobSelect,
         })
       } catch (createError) {
+        // The lookup above is not enough under concurrency; two requests can race here.
+        // Handle the unique constraint case by reading back and returning the existing job.
         const isUniqueConstraintViolation =
           rawIdempotencyKey &&
           createError instanceof Prisma.PrismaClientKnownRequestError &&
@@ -266,6 +274,8 @@ router.post(
         throw createError
       }
 
+      // Debit and job flag update must be atomic to prevent partial state (e.g. charge succeeded but
+      // job not marked charged) and to ensure we never charge more than once for a single job.
       const charged = await prisma.$transaction(async (tx) => {
         const debitResult = await tx.user.updateMany({
           where: { id: userId, credits: { gt: 0 } },
@@ -305,6 +315,8 @@ router.post(
       }
 
       try {
+        // After credits are charged, enqueue the async work. If enqueue fails we refund the credit
+        // in an idempotent way (claim + refund) to avoid double refunds on retried error handling.
         await enqueueSvgGenerationJob(generationJob.id, userId)
       } catch (error) {
         logger.error(
