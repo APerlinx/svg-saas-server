@@ -24,7 +24,6 @@ export const TRUST_PROXY: boolean | number = (() => {
 
   const hops = Number(normalized)
   if (Number.isFinite(hops) && hops >= 0) return hops
-  // TODO: Check in production if number of hops is valid? -> check "x-forwarded-for" header
   return IS_PRODUCTION ? 1 : false
 })()
 
@@ -40,9 +39,6 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 
 // AI Models / APIs
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string
-// Add more AI model keys here as needed
-// export const REPLICATE_API_KEY = process.env.REPLICATE_API_KEY as string
-// export const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY as string
 if (!OPENAI_API_KEY) {
   throw new Error('OPENAI_API_KEY must be defined')
 }
@@ -57,6 +53,12 @@ if (!RESEND_API_KEY) {
 // Support inbox (where contact/bug/idea submissions are delivered)
 export const SUPPORT_INBOX_EMAIL =
   process.env.SUPPORT_INBOX_EMAIL || 'chatsvg.dev@gmail.com'
+
+// Admin email (for magic link authentication)
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL
+if (!ADMIN_EMAIL && IS_PRODUCTION) {
+  throw new Error('ADMIN_EMAIL must be defined in production .env file')
+}
 
 // Redis Configuration
 export const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'

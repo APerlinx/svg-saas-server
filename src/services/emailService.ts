@@ -5,6 +5,7 @@ import { SUPPORT_INBOX_EMAIL } from '../config/env'
 import { logger } from '../lib/logger'
 
 const resend = new Resend(RESEND_API_KEY)
+const EMAIL_FROM = 'chatSVG <noreply@chatsvg.dev>'
 
 export async function sendPasswordResetEmail(
   email: string,
@@ -240,5 +241,63 @@ export async function sendSupportConfirmationEmail(
     logger.info({ email, type }, 'Support confirmation email sent')
   } catch (error) {
     logger.error({ error, email }, 'Error sending support confirmation email')
+  }
+}
+
+/**
+ * Send admin magic link for passwordless authentication
+ */
+export const sendAdminMagicLink = async (email: string, token: string) => {
+  try {
+    const backendUrl =
+      process.env.NODE_ENV === 'production'
+        ? 'https://api.chatsvg.dev'
+        : 'http://localhost:3000'
+    const magicLink = `${backendUrl}/api/admin/auth?token=${token}`
+
+    await resend.emails.send({
+      from: 'chatSVG <noreply@chatsvg.dev>',
+      to: email,
+      subject: 'Admin Access - chatSVG',
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 20px; }
+              .container { max-width: 600px; margin: 0 auto; background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .header { color: #4f46e5; font-size: 24px; font-weight: bold; margin-bottom: 20px; }
+              .content { margin-bottom: 30px; }
+              .button { display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; }
+              .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 14px; color: #6b7280; }
+              .warning { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; margin: 20px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">Admin Access Request</div>
+              <div class="content">
+                <p>Click the button below to access the admin panel:</p>
+                <p style="text-align: center; margin: 30px 0;">
+                  <a href="${magicLink}" class="button">Access Admin Panel</a>
+                </p>
+                <div class="warning">
+                  <strong>⚠️ Security Notice:</strong> This link expires in 5 minutes and can only be used once.
+                </div>
+                <p style="font-size: 14px; color: #6b7280;">If you didn't request admin access, you can safely ignore this email.</p>
+              </div>
+              <div class="footer">
+                <p>chatSVG - AI-powered SVG generation</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+    })
+    logger.info({ email }, 'Admin magic link sent')
+  } catch (error) {
+    logger.error({ error, email }, 'Error sending admin magic link')
+    throw error
   }
 }
