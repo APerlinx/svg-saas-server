@@ -1,11 +1,11 @@
 import express, { Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
-import { JWT_SECRET, ADMIN_EMAIL } from '../config/env.js'
-import { logger } from '../lib/logger.js'
-import { sendAdminMagicLink } from '../services/emailService.js'
-import { requireAdmin } from '../middleware/adminAuth.js'
-import prisma from '../lib/prisma.js'
-import { svgGenerationQueue } from '../jobs/svgGenerationQueue.js'
+import { JWT_SECRET, ADMIN_EMAIL } from '../config/env'
+import { logger } from '../lib/logger'
+import { sendAdminMagicLink } from '../services/emailService'
+import { requireAdmin } from '../middleware/adminAuth'
+import prisma from '../lib/prisma'
+import { svgGenerationQueue } from '../jobs/svgGenerationQueue'
 
 const router = express.Router()
 
