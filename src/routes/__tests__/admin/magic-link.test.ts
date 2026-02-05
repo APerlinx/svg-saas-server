@@ -8,6 +8,25 @@ import * as emailService from '../../../services/emailService'
 process.env.ADMIN_EMAIL = 'admin@chatsvg.dev'
 process.env.JWT_SECRET = 'test-secret-key-at-least-32-characters-long'
 
+// Mock svgGenerationQueue (prevents Redis connection)
+jest.mock('../../../jobs/svgGenerationQueue', () => ({
+  svgGenerationQueue: {
+    count: jest.fn().mockResolvedValue(0),
+  },
+}))
+
+// Mock prisma (prevents database connection)
+jest.mock('../../../lib/prisma', () => ({
+  __esModule: true,
+  default: {
+    generationJob: {
+      findMany: jest.fn().mockResolvedValue([]),
+      groupBy: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+  },
+}))
+
 import adminRoutes from '../../admin.routes'
 
 // Mock email service
