@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-import { JWT_SECRET, ADMIN_EMAIL } from '../config/env.js'
-import { logger } from '../lib/logger.js'
+import { JWT_SECRET, ADMIN_EMAIL } from '../config/env'
+import { logger } from '../lib/logger'
 
 export const requireAdmin = (
   req: Request,
