@@ -1,6 +1,11 @@
 import express, { Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
-import { JWT_SECRET, ADMIN_EMAIL } from '../config/env'
+import {
+  JWT_SECRET,
+  ADMIN_EMAIL,
+  FRONTEND_URL,
+  IS_PRODUCTION,
+} from '../config/env'
 import { logger } from '../lib/logger'
 import { sendAdminMagicLink } from '../services/emailService'
 import { requireAdmin } from '../middleware/adminAuth'
@@ -82,25 +87,17 @@ router.get('/auth', async (req: Request, res: Response) => {
     // Set secure HTTP-only cookie
     res.cookie('admin_session', sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: IS_PRODUCTION, // HTTPS only in production
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      domain: IS_PRODUCTION ? '.chatsvg.dev' : undefined, // Cross-subdomain access in production
     })
 
     logger.info({ email: decoded.email }, 'Admin authenticated via magic link')
 
-    // Redirect to admin metrics page (or send success response)
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Admin Access Granted</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
-          <h1>✅ Admin Access Granted</h1>
-          <p>You can now access admin endpoints.</p>
-          <p><a href="/api/admin/metrics">View Metrics</a></p>
-        </body>
-      </html>
-    `)
+    // Redirect to frontend admin dashboard
+    const redirectUrl = `${FRONTEND_URL}/admin`
+    res.redirect(redirectUrl)
   } catch (error) {
     logger.error({ error }, 'Error verifying admin magic link')
     res.status(401).send('Invalid or expired magic link')
