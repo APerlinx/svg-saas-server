@@ -109,7 +109,7 @@ describe('Admin Magic Link Authentication', () => {
   })
 
   describe('GET /api/admin/auth', () => {
-    it('should set admin session cookie with valid token', async () => {
+    it('should set admin session cookie and redirect with valid token', async () => {
       const token = jwt.sign(
         {
           email: 'admin@chatsvg.dev',
@@ -122,8 +122,8 @@ describe('Admin Magic Link Authentication', () => {
 
       const response = await request(app).get(`/api/admin/auth?token=${token}`)
 
-      expect(response.status).toBe(200)
-      expect(response.text).toContain('Admin Access Granted')
+      expect(response.status).toBe(302) // Redirect status
+      expect(response.headers.location).toMatch(/\/admin$/) // Redirects to /admin
 
       const cookies = response.headers['set-cookie'] as unknown as string[]
       expect(cookies).toBeDefined()
