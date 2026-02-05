@@ -118,12 +118,18 @@ model GenerationJob {
   attemptsMade    Int       @default(0)
   lastFailedAt    DateTime?
 
-  // Idempotency: optional header from client to prevent double submits
   idempotencyKey String?
   requestHash    String? // Hash of request params to detect key reuse with different params
 
   generationId String?        @unique
   generation   SvgGeneration? @relation("JobToGeneration", fields: [generationId], references: [id])
+
+  aiModel            String?
+  aiPromptTokens     Int?
+  aiCompletionTokens Int?
+  aiTotalTokens      Int?
+  aiLatencyMs        Int?     // Time spent in AI call(s)
+  aiAttempts         Int?     // Number of repair attempts (1 or 2)
 
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])

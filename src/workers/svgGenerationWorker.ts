@@ -225,11 +225,31 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
         // This keeps the system simpler and avoids additional staging state.
         // If metrics show a high retry rate or significant extra LLM cost,
         // consider persisting the first successful SVG attempt and retrying only persistence.
-        const svg = await generateSvg(
+        const { svg, metrics } = await generateSvg(
           jobRecord.prompt,
           jobRecord.style ?? DEFAULT_STYLE,
           jobRecord.model,
         )
+
+        try {
+          await prisma.generationJob.update({
+            where: { id: jobId },
+            data: {
+              aiModel: metrics.model,
+              aiPromptTokens: metrics.promptTokens,
+              aiCompletionTokens: metrics.completionTokens,
+              aiTotalTokens: metrics.totalTokens,
+              aiLatencyMs: metrics.latencyMs,
+              aiAttempts: metrics.attempts,
+            },
+          })
+        } catch (metricsError) {
+          logger.warn(
+            { error: metricsError, jobId },
+            'Failed to store AI metrics',
+          )
+        }
+
         await job.updateProgress(75)
         const cleanSvg = sanitizeSvg(svg)
         await job.updateProgress(85)
@@ -276,7 +296,6 @@ const workerConnection = createBullMqConnection('svg-generation-worker')
               generationId: generation.id,
             },
           })
-
           return generation.id
         })
 

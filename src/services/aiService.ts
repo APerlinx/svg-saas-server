@@ -79,19 +79,38 @@ function validateSvg(svg: string): string[] {
   return errors
 }
 
+export type AiMetrics = {
+  model: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  latencyMs: number
+  attempts: number
+}
+
 export async function generateSvg(
   prompt: string,
   style: string,
-  model: string
-): Promise<string> {
+  model: string,
+): Promise<{ svg: string; metrics: AiMetrics }> {
   if (IS_TEST) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+    return {
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <rect x="32" y="32" width="192" height="192" rx="16" fill="none" stroke="#111111" stroke-width="8"/>
   <circle cx="128" cy="128" r="32" fill="#111111"/>
-  </svg>`
+  </svg>`,
+      metrics: {
+        model: 'test',
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs: 0,
+        attempts: 0,
+      },
+    }
   }
 
-  const resolvedModel = model || 'gpt-4o'
+  const resolvedModel = model || 'gpt-5.2-2025-12-11'
 
   const baseMessages: ChatMessage[] = [
     {
@@ -189,11 +208,29 @@ Use a neutral color palette (black/white/gray) unless explicit colors are reques
     },
   ]
 
+  let totalPromptTokens = 0
+  let totalCompletionTokens = 0
+  let totalTokens = 0
+  let totalLatencyMs = 0
+  let attempts = 0
+
   const callModel = async (messages: ChatMessage[]) => {
+    const startTime = Date.now()
+    attempts++
+
     const response = await openai.chat.completions.create({
       model: resolvedModel,
       messages,
     })
+
+    const latencyMs = Date.now() - startTime
+    totalLatencyMs += latencyMs
+
+    // Accumulate token counts
+    totalPromptTokens += response.usage?.prompt_tokens || 0
+    totalCompletionTokens += response.usage?.completion_tokens || 0
+    totalTokens += response.usage?.total_tokens || 0
+
     const content = response.choices[0].message?.content
     if (!content) throw new Error('No SVG code generated')
     return extractSingleSvg(content)
@@ -203,7 +240,19 @@ Use a neutral color palette (black/white/gray) unless explicit colors are reques
   let svg = await callModel(baseMessages)
   let errors = validateSvg(svg)
 
-  if (errors.length === 0) return svg
+  if (errors.length === 0) {
+    return {
+      svg,
+      metrics: {
+        model: resolvedModel,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        totalTokens,
+        latencyMs: totalLatencyMs,
+        attempts,
+      },
+    }
+  }
 
   // Attempt 2: repair once
   const repairMessage: ChatMessage = {
@@ -225,5 +274,15 @@ ${svg}`,
     throw new Error(`Generated SVG failed validation: ${errors.join('; ')}`)
   }
 
-  return svg
+  return {
+    svg,
+    metrics: {
+      model: resolvedModel,
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      totalTokens,
+      latencyMs: totalLatencyMs,
+      attempts,
+    },
+  }
 }
