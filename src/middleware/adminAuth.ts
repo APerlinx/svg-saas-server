@@ -41,3 +41,37 @@ export const requireAdmin = (
     })
   }
 }
+
+export const requireAdminOrAPIKey = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    // Check for API key first (for n8n/automation)
+    const apiKey = req.headers['x-admin-api-key']
+
+    if (apiKey && typeof apiKey === 'string') {
+      const ADMIN_API_KEY = process.env.ADMIN_API_KEY
+
+      if (!ADMIN_API_KEY) {
+        logger.error('ADMIN_API_KEY not configured')
+        return res.status(500).json({ error: 'Server misconfiguration' })
+      }
+
+      if (apiKey === ADMIN_API_KEY) {
+        // Valid API key, proceed
+        return next()
+      } else {
+        logger.warn({ ip: req.ip }, 'Invalid admin API key attempt')
+        return res.status(403).json({ error: 'Invalid API key' })
+      }
+    }
+
+    // Fallback to JWT cookie auth
+    return requireAdmin(req, res, next)
+  } catch (error) {
+    logger.warn({ error }, 'Admin authentication failed')
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+}

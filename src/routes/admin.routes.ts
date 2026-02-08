@@ -8,7 +8,7 @@ import {
 } from '../config/env'
 import { logger } from '../lib/logger'
 import { sendAdminMagicLink } from '../services/emailService'
-import { requireAdmin } from '../middleware/adminAuth'
+import { requireAdminOrAPIKey } from '../middleware/adminAuth'
 import prisma from '../lib/prisma'
 import { svgGenerationQueue } from '../jobs/svgGenerationQueue'
 
@@ -104,174 +104,181 @@ router.get('/auth', async (req: Request, res: Response) => {
   }
 })
 
-router.get('/metrics', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    // OpenAI GPT-5 pricing (as of Feb 2026)
-    const PRICING = {
-      'gpt-5.2': { input: 1.75 / 1_000_000, output: 14 / 1_000_000 },
-      'gpt-5.2-2025-12-11': { input: 1.75 / 1_000_000, output: 14 / 1_000_000 },
-      'gpt-5.2-pro': { input: 21 / 1_000_000, output: 168 / 1_000_000 },
-      'gpt-5-mini': { input: 0.25 / 1_000_000, output: 2 / 1_000_000 },
-      'gpt-5-mini-2025-08-07': {
-        input: 0.25 / 1_000_000,
-        output: 2 / 1_000_000,
-      },
-      'gpt-4.1': { input: 3 / 1_000_000, output: 12 / 1_000_000 },
-      'gpt-4.1-mini': { input: 0.8 / 1_000_000, output: 3.2 / 1_000_000 },
-    }
-
-    // Fetch all succeeded jobs with AI metrics
-    const succeededJobs = await prisma.generationJob.findMany({
-      where: {
-        status: 'SUCCEEDED',
-        aiTotalTokens: { not: null },
-      },
-      select: {
-        aiModel: true,
-        aiPromptTokens: true,
-        aiCompletionTokens: true,
-        aiTotalTokens: true,
-        aiLatencyMs: true,
-        aiAttempts: true,
-        createdAt: true,
-        finishedAt: true,
-        userId: true,
-      },
-    })
-
-    // Calculate costs and aggregate metrics
-    let totalCostUSD = 0
-    let totalPromptTokens = 0
-    let totalCompletionTokens = 0
-    const latencies: number[] = []
-    const durations: number[] = []
-    let repairCount = 0
-
-    for (const job of succeededJobs) {
-      const model = (job.aiModel || 'gpt-5.2') as keyof typeof PRICING
-      const pricing = PRICING[model] || PRICING['gpt-5.2']
-
-      const promptTokens = job.aiPromptTokens || 0
-      const completionTokens = job.aiCompletionTokens || 0
-      const attempts = job.aiAttempts || 1
-
-      totalPromptTokens += promptTokens
-      totalCompletionTokens += completionTokens
-      totalCostUSD +=
-        promptTokens * pricing.input + completionTokens * pricing.output
-
-      if (job.aiLatencyMs) latencies.push(job.aiLatencyMs)
-      if (attempts > 1) repairCount++
-
-      if (job.finishedAt) {
-        const duration = job.finishedAt.getTime() - job.createdAt.getTime()
-        durations.push(duration)
+router.get(
+  '/metrics',
+  requireAdminOrAPIKey,
+  async (req: Request, res: Response) => {
+    try {
+      // OpenAI GPT-5 pricing (as of Feb 2026)
+      const PRICING = {
+        'gpt-5.2': { input: 1.75 / 1_000_000, output: 14 / 1_000_000 },
+        'gpt-5.2-2025-12-11': {
+          input: 1.75 / 1_000_000,
+          output: 14 / 1_000_000,
+        },
+        'gpt-5.2-pro': { input: 21 / 1_000_000, output: 168 / 1_000_000 },
+        'gpt-5-mini': { input: 0.25 / 1_000_000, output: 2 / 1_000_000 },
+        'gpt-5-mini-2025-08-07': {
+          input: 0.25 / 1_000_000,
+          output: 2 / 1_000_000,
+        },
+        'gpt-4.1': { input: 3 / 1_000_000, output: 12 / 1_000_000 },
+        'gpt-4.1-mini': { input: 0.8 / 1_000_000, output: 3.2 / 1_000_000 },
       }
+
+      // Fetch all succeeded jobs with AI metrics
+      const succeededJobs = await prisma.generationJob.findMany({
+        where: {
+          status: 'SUCCEEDED',
+          aiTotalTokens: { not: null },
+        },
+        select: {
+          aiModel: true,
+          aiPromptTokens: true,
+          aiCompletionTokens: true,
+          aiTotalTokens: true,
+          aiLatencyMs: true,
+          aiAttempts: true,
+          createdAt: true,
+          finishedAt: true,
+          userId: true,
+        },
+      })
+
+      // Calculate costs and aggregate metrics
+      let totalCostUSD = 0
+      let totalPromptTokens = 0
+      let totalCompletionTokens = 0
+      const latencies: number[] = []
+      const durations: number[] = []
+      let repairCount = 0
+
+      for (const job of succeededJobs) {
+        const model = (job.aiModel || 'gpt-5.2') as keyof typeof PRICING
+        const pricing = PRICING[model] || PRICING['gpt-5.2']
+
+        const promptTokens = job.aiPromptTokens || 0
+        const completionTokens = job.aiCompletionTokens || 0
+        const attempts = job.aiAttempts || 1
+
+        totalPromptTokens += promptTokens
+        totalCompletionTokens += completionTokens
+        totalCostUSD +=
+          promptTokens * pricing.input + completionTokens * pricing.output
+
+        if (job.aiLatencyMs) latencies.push(job.aiLatencyMs)
+        if (attempts > 1) repairCount++
+
+        if (job.finishedAt) {
+          const duration = job.finishedAt.getTime() - job.createdAt.getTime()
+          durations.push(duration)
+        }
+      }
+
+      // Calculate percentiles
+      const percentile = (arr: number[], p: number) => {
+        if (arr.length === 0) return 0
+        const sorted = [...arr].sort((a, b) => a - b)
+        const idx = Math.ceil((p / 100) * sorted.length) - 1
+        return sorted[idx] || 0
+      }
+
+      const avgLatency = latencies.length
+        ? latencies.reduce((a, b) => a + b, 0) / latencies.length
+        : 0
+      const p95Latency = percentile(latencies, 95)
+      const avgDuration = durations.length
+        ? durations.reduce((a, b) => a + b, 0) / durations.length
+        : 0
+
+      // Job status counts
+      const statusCounts = await prisma.generationJob.groupBy({
+        by: ['status'],
+        _count: true,
+      })
+
+      const statusMap = Object.fromEntries(
+        statusCounts.map((s) => [s.status, s._count]),
+      )
+
+      const totalJobs =
+        (statusMap.SUCCEEDED || 0) +
+        (statusMap.FAILED || 0) +
+        (statusMap.QUEUED || 0) +
+        (statusMap.RUNNING || 0)
+
+      const successRate =
+        totalJobs > 0 ? ((statusMap.SUCCEEDED || 0) / totalJobs) * 100 : 0
+
+      // Queue depth
+      const queueDepth = await svgGenerationQueue.count()
+
+      // User statistics (last 30 days)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const activeUsers = await prisma.generationJob.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        select: { userId: true },
+        distinct: ['userId'],
+      })
+
+      const topGenerators = await prisma.generationJob.groupBy({
+        by: ['userId'],
+        _count: true,
+        orderBy: { _count: { userId: 'desc' } },
+        take: 10,
+      })
+
+      const totalGenerations30d = await prisma.generationJob.count({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+      })
+
+      res.json({
+        ai: {
+          totalJobs: succeededJobs.length,
+          avgPromptTokens: Math.round(
+            succeededJobs.length ? totalPromptTokens / succeededJobs.length : 0,
+          ),
+          avgCompletionTokens: Math.round(
+            succeededJobs.length
+              ? totalCompletionTokens / succeededJobs.length
+              : 0,
+          ),
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+          avgLatencyMs: Math.round(avgLatency),
+          p95LatencyMs: Math.round(p95Latency),
+          repairRate:
+            succeededJobs.length > 0
+              ? ((repairCount / succeededJobs.length) * 100).toFixed(2) + '%'
+              : '0%',
+          totalCostUSD: '$' + totalCostUSD.toFixed(2),
+          avgCostPerJobUSD:
+            '$' + (totalCostUSD / (succeededJobs.length || 1)).toFixed(4),
+        },
+        jobs: {
+          total: totalJobs,
+          succeeded: statusMap.SUCCEEDED || 0,
+          failed: statusMap.FAILED || 0,
+          queued: statusMap.QUEUED || 0,
+          running: statusMap.RUNNING || 0,
+          queueDepth,
+          successRate: successRate.toFixed(2) + '%',
+          avgDurationMs: Math.round(avgDuration),
+        },
+        users: {
+          activeUsers30d: activeUsers.length,
+          totalGenerations30d,
+          topGenerators: topGenerators.map((u) => ({
+            userId: u.userId,
+            jobCount: u._count,
+          })),
+        },
+      })
+    } catch (error) {
+      logger.error({ error }, 'Error fetching admin metrics')
+      res.status(500).json({ error: 'Failed to fetch metrics' })
     }
-
-    // Calculate percentiles
-    const percentile = (arr: number[], p: number) => {
-      if (arr.length === 0) return 0
-      const sorted = [...arr].sort((a, b) => a - b)
-      const idx = Math.ceil((p / 100) * sorted.length) - 1
-      return sorted[idx] || 0
-    }
-
-    const avgLatency = latencies.length
-      ? latencies.reduce((a, b) => a + b, 0) / latencies.length
-      : 0
-    const p95Latency = percentile(latencies, 95)
-    const avgDuration = durations.length
-      ? durations.reduce((a, b) => a + b, 0) / durations.length
-      : 0
-
-    // Job status counts
-    const statusCounts = await prisma.generationJob.groupBy({
-      by: ['status'],
-      _count: true,
-    })
-
-    const statusMap = Object.fromEntries(
-      statusCounts.map((s) => [s.status, s._count]),
-    )
-
-    const totalJobs =
-      (statusMap.SUCCEEDED || 0) +
-      (statusMap.FAILED || 0) +
-      (statusMap.QUEUED || 0) +
-      (statusMap.RUNNING || 0)
-
-    const successRate =
-      totalJobs > 0 ? ((statusMap.SUCCEEDED || 0) / totalJobs) * 100 : 0
-
-    // Queue depth
-    const queueDepth = await svgGenerationQueue.count()
-
-    // User statistics (last 30 days)
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const activeUsers = await prisma.generationJob.findMany({
-      where: { createdAt: { gte: thirtyDaysAgo } },
-      select: { userId: true },
-      distinct: ['userId'],
-    })
-
-    const topGenerators = await prisma.generationJob.groupBy({
-      by: ['userId'],
-      _count: true,
-      orderBy: { _count: { userId: 'desc' } },
-      take: 10,
-    })
-
-    const totalGenerations30d = await prisma.generationJob.count({
-      where: { createdAt: { gte: thirtyDaysAgo } },
-    })
-
-    res.json({
-      ai: {
-        totalJobs: succeededJobs.length,
-        avgPromptTokens: Math.round(
-          succeededJobs.length ? totalPromptTokens / succeededJobs.length : 0,
-        ),
-        avgCompletionTokens: Math.round(
-          succeededJobs.length
-            ? totalCompletionTokens / succeededJobs.length
-            : 0,
-        ),
-        totalTokens: totalPromptTokens + totalCompletionTokens,
-        avgLatencyMs: Math.round(avgLatency),
-        p95LatencyMs: Math.round(p95Latency),
-        repairRate:
-          succeededJobs.length > 0
-            ? ((repairCount / succeededJobs.length) * 100).toFixed(2) + '%'
-            : '0%',
-        totalCostUSD: '$' + totalCostUSD.toFixed(2),
-        avgCostPerJobUSD:
-          '$' + (totalCostUSD / (succeededJobs.length || 1)).toFixed(4),
-      },
-      jobs: {
-        total: totalJobs,
-        succeeded: statusMap.SUCCEEDED || 0,
-        failed: statusMap.FAILED || 0,
-        queued: statusMap.QUEUED || 0,
-        running: statusMap.RUNNING || 0,
-        queueDepth,
-        successRate: successRate.toFixed(2) + '%',
-        avgDurationMs: Math.round(avgDuration),
-      },
-      users: {
-        activeUsers30d: activeUsers.length,
-        totalGenerations30d,
-        topGenerators: topGenerators.map((u) => ({
-          userId: u.userId,
-          jobCount: u._count,
-        })),
-      },
-    })
-  } catch (error) {
-    logger.error({ error }, 'Error fetching admin metrics')
-    res.status(500).json({ error: 'Failed to fetch metrics' })
-  }
-})
+  },
+)
 
 router.post('/logout', (req: Request, res: Response) => {
   res.clearCookie('admin_session')
