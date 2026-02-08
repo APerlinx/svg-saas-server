@@ -109,6 +109,27 @@ router.get(
   requireAdminOrAPIKey,
   async (req: Request, res: Response) => {
     try {
+      // Parse time range from query params
+      const timeRange = req.query.range as string
+      let startDate: Date | undefined
+
+      switch (timeRange) {
+        case '24h':
+          startDate = new Date(Date.now() - 24 * 60 * 60 * 1000)
+          break
+        case '7d':
+          startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          break
+        case '30d':
+          startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+          break
+        case 'all':
+        default:
+          // No filter - all time
+          startDate = undefined
+          break
+      }
+
       // OpenAI GPT-5 pricing (as of Feb 2026)
       const PRICING = {
         'gpt-5.2': { input: 1.75 / 1_000_000, output: 14 / 1_000_000 },
@@ -126,12 +147,19 @@ router.get(
         'gpt-4.1-mini': { input: 0.8 / 1_000_000, output: 3.2 / 1_000_000 },
       }
 
-      // Fetch all succeeded jobs with AI metrics
+      // Build where clause with time filter
+      const whereClause: any = {
+        status: 'SUCCEEDED',
+        aiTotalTokens: { not: null },
+      }
+
+      if (startDate) {
+        whereClause.createdAt = { gte: startDate }
+      }
+
+      // Fetch succeeded jobs with AI metrics (filtered by time range)
       const succeededJobs = await prisma.generationJob.findMany({
-        where: {
-          status: 'SUCCEEDED',
-          aiTotalTokens: { not: null },
-        },
+        where: whereClause,
         select: {
           aiModel: true,
           aiPromptTokens: true,
@@ -191,10 +219,11 @@ router.get(
         ? durations.reduce((a, b) => a + b, 0) / durations.length
         : 0
 
-      // Job status counts
+      // Job status counts (filtered by time range)
       const statusCounts = await prisma.generationJob.groupBy({
         by: ['status'],
         _count: true,
+        where: startDate ? { createdAt: { gte: startDate } } : undefined,
       })
 
       const statusMap = Object.fromEntries(
@@ -213,10 +242,11 @@ router.get(
       // Queue depth
       const queueDepth = await svgGenerationQueue.count()
 
-      // User statistics (last 30 days)
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      // User statistics (filtered by time range)
+      const userStatsWhere = startDate ? { createdAt: { gte: startDate } } : {}
+
       const activeUsers = await prisma.generationJob.findMany({
-        where: { createdAt: { gte: thirtyDaysAgo } },
+        where: userStatsWhere,
         select: { userId: true },
         distinct: ['userId'],
       })
@@ -224,15 +254,17 @@ router.get(
       const topGenerators = await prisma.generationJob.groupBy({
         by: ['userId'],
         _count: true,
+        where: startDate ? { createdAt: { gte: startDate } } : undefined,
         orderBy: { _count: { userId: 'desc' } },
         take: 10,
       })
 
-      const totalGenerations30d = await prisma.generationJob.count({
-        where: { createdAt: { gte: thirtyDaysAgo } },
+      const totalGenerations = await prisma.generationJob.count({
+        where: startDate ? { createdAt: { gte: startDate } } : undefined,
       })
 
       res.json({
+        timeRange: timeRange || 'all',
         ai: {
           totalJobs: succeededJobs.length,
           avgPromptTokens: Math.round(
@@ -265,8 +297,8 @@ router.get(
           avgDurationMs: Math.round(avgDuration),
         },
         users: {
-          activeUsers30d: activeUsers.length,
-          totalGenerations30d,
+          activeUsers: activeUsers.length,
+          totalGenerations,
           topGenerators: topGenerators.map((u) => ({
             userId: u.userId,
             jobCount: u._count,
