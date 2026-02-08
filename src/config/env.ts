@@ -60,6 +60,12 @@ if (!ADMIN_EMAIL && IS_PRODUCTION) {
   throw new Error('ADMIN_EMAIL must be defined in production .env file')
 }
 
+// Admin API key (for n8n/automation access)
+export const ADMIN_API_KEY = process.env.ADMIN_API_KEY
+if (IS_PRODUCTION && !ADMIN_API_KEY) {
+  throw new Error('ADMIN_API_KEY must be defined in production')
+}
+
 // Redis Configuration
 export const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
 
