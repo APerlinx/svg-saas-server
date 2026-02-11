@@ -20,10 +20,17 @@ model User {
 
   notificationsLastSeenAt DateTime?
 
-  generations    SvgGeneration[]
-  refreshTokens  RefreshToken[]
-  generationJobs GenerationJob[]
-  notifications  Notification[]
+  // API Access
+  apiQuotaLimit   Int?      // Monthly API call limit (based on plan)
+  apiQuotaUsed    Int?      @default(0) // Current month usage
+  apiQuotaResetAt DateTime? // When quota resets (billing cycle)
+
+  generations     SvgGeneration[]
+  refreshTokens   RefreshToken[]
+  generationJobs  GenerationJob[]
+  notifications   Notification[]
+  apiKeys         ApiKey[]
+  apiKeyUsageLogs ApiKeyUsageLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -36,6 +43,7 @@ model User {
 
   @@unique([provider, providerId])
   @@index([email])
+  @@index([plan])
 }
 
 model SvgGeneration {
@@ -99,9 +107,9 @@ model GenerationJob {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  prompt String
-  style  String?
-  model  String  @default("gpt-4o")
+  prompt  String
+  style   String?
+  model   String  @default("gpt-4o")
   privacy Boolean @default(false)
 
   status GenerationJobStatus @default(QUEUED)
@@ -113,13 +121,13 @@ model GenerationJob {
 
   errorCode       String?
   errorMessage    String?
-  creditsCharged  Boolean   @default(false)
-  creditsRefunded Boolean   @default(false)
-  attemptsMade    Int       @default(0)
+  creditsCharged  Boolean @default(false)
+  creditsRefunded Boolean @default(false)
+  attemptsMade    Int     @default(0)
   lastFailedAt    DateTime?
 
   idempotencyKey String?
-  requestHash    String? // Hash of request params to detect key reuse with different params
+  requestHash    String?
 
   generationId String?        @unique
   generation   SvgGeneration? @relation("JobToGeneration", fields: [generationId], references: [id])
@@ -128,13 +136,20 @@ model GenerationJob {
   aiPromptTokens     Int?
   aiCompletionTokens Int?
   aiTotalTokens      Int?
-  aiLatencyMs        Int?     // Time spent in AI call(s)
-  aiAttempts         Int?     // Number of repair attempts (1 or 2)
+  aiLatencyMs        Int?
+  aiAttempts         Int?
+
+  // API tracking
+  source   GenerationSource @default(WEB_APP) // Track if from web app or API
+  apiKeyId String? // If from API, which key was used
+  apiKey   ApiKey?          @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([userId, status])
+  @@index([apiKeyId])
+  @@index([source, createdAt])
 }
 
 model Notification {
@@ -161,10 +176,84 @@ model Notification {
   @@index([userId, readAt])
 }
 
+model ApiKey {
+  id          String  @id @default(cuid())
+  name        String // User-friendly name (e.g., "Production Key", "CI/CD Pipeline")
+  description String? // Optional description
+
+  // Security: Never store raw key, only hash
+  keyHash   String @unique // SHA-256 hash of the actual key
+  keyPrefix String // First 8 chars for display (e.g., "sk_live_abc1...")
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Lifecycle
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime? // Track last usage for security/cleanup
+  expiresAt  DateTime? // Optional expiration date
+  revokedAt  DateTime? // Soft delete - mark as revoked
+
+  // Usage tracking
+  usageCount Int @default(0) // Total number of requests
+
+  // Permissions (future-proofing)
+  scopes String[] @default(["generate:svg", "read:generation"]) // What this key can do
+
+  // Rate limiting (optional per-key override)
+  customRateLimit Int? // Custom rate limit for this specific key
+
+  // Environment/Context
+  environment String? @default("production") // "production", "development", "test"
+  ipWhitelist String[] @default([]) // Optional IP restrictions
+
+  // Relations
+  generationJobs  GenerationJob[]
+  apiKeyUsageLogs ApiKeyUsageLog[]
+
+  @@index([userId])
+  @@index([keyHash])
+  @@index([userId, revokedAt])
+  @@index([lastUsedAt])
+}
+
+model ApiKeyUsageLog {
+  id String @id @default(cuid())
+
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Request details
+  endpoint   String // e.g., "/v1/svg/generate"
+  method     String // "POST", "GET", etc.
+  statusCode Int // 200, 401, 429, etc.
+
+  // Timing
+  timestamp DateTime @default(now())
+  latencyMs Int? // Request duration
+
+  // Context
+  ipAddress String?
+  userAgent String?
+  requestId String? // Correlation ID for debugging
+
+  // Resource usage (for billing/analytics)
+  creditsUsed Int? // How many credits were consumed
+  tokensUsed  Int? // OpenAI tokens consumed
+
+  @@index([apiKeyId, timestamp])
+  @@index([userId, timestamp])
+  @@index([timestamp])
+  @@index([statusCode])
+}
+
 enum Plan {
   FREE
-  CUSTOMER
-  UNLIMITED
+  PRO
+  ENTERPRISE
 }
 
 enum AuthProvider {
@@ -189,4 +278,9 @@ enum NotificationType {
   CREDITS_REFUNDED
   ACCOUNT_SECURITY
   SYSTEM_ANNOUNCEMENT
+}
+
+enum GenerationSource {
+  WEB_APP // Generated via web interface
+  API // Generated via API key
 }
