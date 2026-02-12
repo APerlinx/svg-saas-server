@@ -18,21 +18,6 @@ function getClientIp(req: Request): string {
   return ip.toString().replace('::ffff:', '')
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      apiKey?: {
-        id: string
-        userId: string
-        name: string
-        scopes: string[]
-        customRateLimit: number | null
-        ipWhitelist: string[]
-      }
-    }
-  }
-}
-
 /**
  * Middleware to authenticate API requests using API keys
  * Extracts X-API-Key header and validates it
@@ -55,7 +40,6 @@ export async function apiKeyAuth(
 
     const clientIp = getClientIp(req)
 
-    // Log IP detection for debugging (especially in production)
     logger.debug(
       {
         clientIp,
@@ -86,7 +70,6 @@ export async function apiKeyAuth(
       return
     }
 
-    // Attach user and API key info to request
     req.user = validation.apiKey!.user as any
     req.apiKey = {
       id: validation.apiKey!.id,

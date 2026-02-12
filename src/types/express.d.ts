@@ -10,10 +10,18 @@ declare global {
     // For OAuth - Passport returns full Prisma user
     interface User extends PrismaUser {}
 
-    // For JWT auth - authMiddleware sets this (can be JwtPayload or full PrismaUser from OAuth)
+    // For JWT auth - authMiddleware sets this (can be JwtPayload or full PrismaUser from OAuth/API)
     interface Request {
       user?: JwtPayload | PrismaUser
       dailyGenerationCount?: number
+      apiKey?: {
+        id: string
+        userId: string
+        name: string
+        scopes: string[]
+        customRateLimit: number | null
+        ipWhitelist: string[]
+      }
     }
   }
 }
