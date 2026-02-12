@@ -12,7 +12,7 @@ import { PLAN_LIMITS, type PlanType } from '../utils/planLimits'
  * Generate a secure API key
  * Format: sk_{env}_{32_random_bytes}
  *
- * Example: sk_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+ * Example: sk_live_abc123def456...
  */
 export function generateSecureKey(
   environment: 'production' | 'test' = 'production',
@@ -81,11 +81,15 @@ export async function createApiKey(
     expiresAt,
   } = params
 
+  console.log('🔑 Creating API key:', { userId, name, environment })
+
   // 1. Get user and check plan
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { plan: true },
   })
+
+  console.log('👤 User found:', { userId, plan: user?.plan })
 
   if (!user) {
     throw new Error('User not found')

@@ -10,20 +10,19 @@ export interface PlanLimits {
   creditsPerMonth: number
   overagePrice?: number // Price per additional credit (only for paid plans)
 
+  // Unified Generation Limits (applies to both web app + API)
+  generationsPerMonth: number
+
   // API Access
   apiAccess: boolean
   maxApiKeys: number
-  apiCallsPerMonth: number
 
-  // Rate Limits
+  // Rate Limits (requests per time window, not generations)
   rateLimits: {
     perMinute: number
     perHour: number
     perDay: number
   }
-
-  // Daily Generation Limits (for web app)
-  dailyGenerations: number
 
   // Support
   supportLevel: 'community' | 'email' | 'priority' | 'dedicated'
@@ -35,10 +34,12 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
     // Credits
     creditsPerMonth: 3,
 
+    // Unified Generations (web + API combined)
+    generationsPerMonth: 1000,
+
     // API Access
     apiAccess: false,
     maxApiKeys: 0,
-    apiCallsPerMonth: 0,
 
     // Rate Limits
     rateLimits: {
@@ -46,9 +47,6 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
       perHour: 100,
       perDay: 200,
     },
-
-    // Daily Generation Limits
-    dailyGenerations: 50,
 
     // Support
     supportLevel: 'community',
@@ -59,10 +57,12 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
     creditsPerMonth: 100,
     overagePrice: 0.1, // $0.10 per credit
 
+    // Unified Generations (web + API combined)
+    generationsPerMonth: 10000,
+
     // API Access
     apiAccess: true,
     maxApiKeys: 3,
-    apiCallsPerMonth: 10000,
 
     // Rate Limits
     rateLimits: {
@@ -70,9 +70,6 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
       perHour: 1000,
       perDay: 5000,
     },
-
-    // Daily Generation Limits
-    dailyGenerations: 500,
 
     // Support
     supportLevel: 'priority',
@@ -84,10 +81,12 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
     creditsPerMonth: 1000,
     overagePrice: 0.08, // $0.08 per credit (discounted)
 
+    // Unified Generations (web + API combined)
+    generationsPerMonth: 100000,
+
     // API Access
     apiAccess: true,
     maxApiKeys: 20,
-    apiCallsPerMonth: 100000,
 
     // Rate Limits
     rateLimits: {
@@ -95,9 +94,6 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
       perHour: 10000,
       perDay: Infinity,
     },
-
-    // Daily Generation Limits
-    dailyGenerations: Infinity,
 
     // Support
     supportLevel: 'dedicated',
@@ -153,7 +149,7 @@ export function getUpgradeRecommendation(
   currentPlan: PlanType,
   usage: {
     creditsUsed?: number
-    apiCallsUsed?: number
+    generationsUsed?: number
   },
 ): { shouldUpgrade: boolean; recommendedPlan?: PlanType; reason?: string } {
   if (currentPlan === 'ENTERPRISE') {
@@ -165,8 +161,8 @@ export function getUpgradeRecommendation(
   // Check if user needs API access
   if (
     !currentLimits.apiAccess &&
-    usage.apiCallsUsed &&
-    usage.apiCallsUsed > 0
+    usage.generationsUsed &&
+    usage.generationsUsed > 0
   ) {
     return {
       shouldUpgrade: true,
@@ -188,15 +184,16 @@ export function getUpgradeRecommendation(
     }
   }
 
-  // Check if user is hitting API call limits
+  // Check if user is hitting generation limits
   if (
-    usage.apiCallsUsed &&
-    usage.apiCallsUsed >= currentLimits.apiCallsPerMonth * 0.8
+    usage.generationsUsed &&
+    usage.generationsUsed >= currentLimits.generationsPerMonth * 0.8
   ) {
+    const nextPlan = currentPlan === 'FREE' ? 'PRO' : 'ENTERPRISE'
     return {
       shouldUpgrade: true,
-      recommendedPlan: 'ENTERPRISE',
-      reason: `You're using ${usage.apiCallsUsed} of ${currentLimits.apiCallsPerMonth} API calls`,
+      recommendedPlan: nextPlan,
+      reason: `You're using ${usage.generationsUsed} of ${currentLimits.generationsPerMonth} generations`,
     }
   }
 

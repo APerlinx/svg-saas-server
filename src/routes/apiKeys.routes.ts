@@ -59,10 +59,23 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       warning: 'Save this key now. You will not be able to see it again.',
     })
   } catch (error: any) {
+    // Enhanced error logging for debugging
     logger.error(
-      { error, userId: requireUserId(req) },
+      {
+        error: {
+          message: error.message,
+          stack: error.stack,
+          code: error.code,
+          name: error.name,
+        },
+        userId: requireUserId(req),
+        requestBody: req.body,
+      },
       'Failed to create API key',
     )
+
+    // Log to console for development
+    console.error('❌ API Key Creation Error:', error)
 
     if (error.message?.includes('API access requires')) {
       return res.status(403).json({ error: error.message })

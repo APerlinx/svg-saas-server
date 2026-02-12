@@ -5,7 +5,10 @@ import prisma from '../lib/prisma'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, AiModel } from '../constants/models'
 import { getUserId, requireUserId } from '../utils/getUserId'
-import { dailyGenerationLimit } from '../middleware/dailyLimit'
+import {
+  monthlyGenerationQuota,
+  incrementGenerationQuota,
+} from '../middleware/monthlyGenerationQuota'
 import {
   downloadLimiter,
   svgGenerationLimiter,
@@ -41,7 +44,7 @@ router.post(
   '/generate-svg',
   authMiddleware,
   svgGenerationLimiter,
-  dailyGenerationLimit(50),
+  monthlyGenerationQuota(),
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
       const { prompt, style, model, privacy } = req.body
@@ -115,6 +118,9 @@ router.post(
         // After credits are charged, enqueue the async work. If enqueue fails we refund the credit
         // in an idempotent way (claim + refund) to avoid double refunds on retried error handling.
         await enqueueGenerationJob(job.id, userId)
+
+        // Increment generation quota (non-blocking)
+        await incrementGenerationQuota(userId)
       } catch (error) {
         logger.error(
           { error, jobId: job.id, userId, requestId: req.requestId },

@@ -11,11 +11,6 @@ CREATE TYPE "GenerationSource" AS ENUM ('WEB_APP', 'API');
 BEGIN;
 CREATE TYPE "Plan_new" AS ENUM ('FREE', 'PRO', 'ENTERPRISE');
 ALTER TABLE "public"."User" ALTER COLUMN "plan" DROP DEFAULT;
-
--- Migrate existing plan values
-UPDATE "User" SET "plan" = 'PRO' WHERE "plan" = 'CUSTOMER';
-UPDATE "User" SET "plan" = 'ENTERPRISE' WHERE "plan" = 'UNLIMITED';
-
 ALTER TABLE "User" ALTER COLUMN "plan" TYPE "Plan_new" USING ("plan"::text::"Plan_new");
 ALTER TYPE "Plan" RENAME TO "Plan_old";
 ALTER TYPE "Plan_new" RENAME TO "Plan";

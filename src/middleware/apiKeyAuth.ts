@@ -6,6 +6,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { validateApiKey } from '../services/apiKeyService'
 import { logger } from '../lib/logger'
+import { PLAN_LIMITS, type PlanType } from '../utils/planLimits'
 
 /**
  * Extract client IP with Cloudflare priority
@@ -78,6 +79,29 @@ export async function apiKeyAuth(
       scopes: validation.apiKey!.scopes,
       customRateLimit: validation.apiKey!.customRateLimit,
       ipWhitelist: validation.apiKey!.ipWhitelist,
+    }
+
+    // Check if user's current plan allows API access
+    const userPlan = validation.apiKey!.user.plan as PlanType
+    const planLimits = PLAN_LIMITS[userPlan]
+
+    if (!planLimits.apiAccess) {
+      logger.warn(
+        {
+          userId: validation.apiKey!.userId,
+          plan: userPlan,
+          apiKeyId: validation.apiKey!.id,
+          ip: clientIp,
+        },
+        'API access denied - plan does not allow API access',
+      )
+
+      res.status(403).json({
+        error: 'API access not available',
+        message: `Your current plan (${userPlan}) does not include API access. Please upgrade to PRO or ENTERPRISE to use the API.`,
+        currentPlan: userPlan,
+      })
+      return
     }
 
     next()

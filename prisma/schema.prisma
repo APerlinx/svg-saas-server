@@ -20,10 +20,15 @@ model User {
 
   notificationsLastSeenAt DateTime?
 
-  // API Access
+  // API Access (Legacy - kept for backward compatibility during migration)
   apiQuotaLimit   Int?      // Monthly API call limit (based on plan)
   apiQuotaUsed    Int?      @default(0) // Current month usage
   apiQuotaResetAt DateTime? // When quota resets (billing cycle)
+
+  // Unified Generation Quota (New - replaces both daily limits and API quota)
+  generationsQuotaLimit   Int?      // Monthly generation limit (based on plan, applies to both web + API)
+  generationsQuotaUsed    Int?      @default(0) // Current month usage
+  generationsQuotaResetAt DateTime? // When quota resets (30-day rolling window)
 
   generations     SvgGeneration[]
   refreshTokens   RefreshToken[]
