@@ -9,6 +9,7 @@ import svgRoutes from './routes/svg.routes'
 import notificationRoutes from './routes/notification.routes'
 import supportRoutes from './routes/support.routes'
 import adminRoutes from './routes/admin.routes'
+import apiKeysRoutes from './routes/apiKeys.routes'
 
 import passport from './config/passport'
 import {
@@ -184,6 +185,7 @@ app.use('/api/user', validateCsrfToken, userRoutes)
 app.use('/api/svg', validateCsrfToken, svgRoutes)
 app.use('/api/notification', validateCsrfToken, notificationRoutes)
 app.use('/api/support', validateCsrfToken, supportRoutes)
+app.use('/api/keys', validateCsrfToken, apiKeysRoutes)
 app.use('/api/admin', adminRoutes)
 
 app.use(
