@@ -184,7 +184,7 @@ app.use('/api/user', validateCsrfToken, userRoutes)
 app.use('/api/svg', validateCsrfToken, svgRoutes)
 app.use('/api/notification', validateCsrfToken, notificationRoutes)
 app.use('/api/support', validateCsrfToken, supportRoutes)
-app.use('/api/admin', adminRoutes) // No CSRF for magic link verification
+app.use('/api/admin', adminRoutes)
 
 app.use(
   (

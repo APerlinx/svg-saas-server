@@ -7,6 +7,17 @@ import { Request, Response, NextFunction } from 'express'
 import { validateApiKey } from '../services/apiKeyService'
 import { logger } from '../lib/logger'
 
+/**
+ * Extract client IP with Cloudflare priority
+ * Cloudflare sets cf-connecting-ip to the real client IP
+ * Fallback to Express req.ip (respects trust proxy setting)
+ */
+function getClientIp(req: Request): string {
+  const cfIp = req.headers['cf-connecting-ip']
+  const ip = cfIp || req.ip || req.socket.remoteAddress || ''
+  return ip.toString().replace('::ffff:', '')
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -42,9 +53,18 @@ export async function apiKeyAuth(
       return
     }
 
-    const clientIp = (req.ip || req.socket.remoteAddress || '').replace(
-      '::ffff:',
-      '',
+    const clientIp = getClientIp(req)
+
+    // Log IP detection for debugging (especially in production)
+    logger.debug(
+      {
+        clientIp,
+        cfConnectingIp: req.headers['cf-connecting-ip'],
+        rawIp: req.ip,
+        socketIp: req.socket.remoteAddress,
+        xForwardedFor: req.headers['x-forwarded-for'],
+      },
+      'API request IP detection',
     )
 
     const validation = await validateApiKey(rawKey, clientIp)

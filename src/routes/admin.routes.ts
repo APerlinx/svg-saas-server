@@ -317,4 +317,42 @@ router.post('/logout', (req: Request, res: Response) => {
   res.json({ message: 'Logged out successfully' })
 })
 
+/**
+ * GET /admin/debug/ip
+ * IP detection diagnostic tool for verifying proxy configuration
+ */
+router.get('/debug/ip', requireAdminOrAPIKey, (req: Request, res: Response) => {
+  const ipInfo = {
+    expressIp: req.ip,
+    expressIps: req.ips,
+    headers: {
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      'x-real-ip': req.headers['x-real-ip'],
+      'cf-connecting-ip': req.headers['cf-connecting-ip'],
+    },
+    socketRemoteAddress: req.socket.remoteAddress,
+    clientIp: (
+      req.headers['cf-connecting-ip'] ||
+      req.ip ||
+      req.socket.remoteAddress ||
+      ''
+    )
+      .toString()
+      .replace('::ffff:', ''),
+  }
+
+  logger.info({ ipInfo }, 'IP detection debug request')
+
+  res.json({
+    message: 'IP Detection Info',
+    ...ipInfo,
+    interpretation: {
+      trustProxySetting: IS_PRODUCTION ? 1 : false,
+      usingCloudflare: !!req.headers['cf-connecting-ip'],
+      recommendation:
+        'If clientIp shows proxy IP instead of your real IP, check trust proxy configuration',
+    },
+  })
+})
+
 export default router
