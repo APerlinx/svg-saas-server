@@ -53,11 +53,15 @@ export interface CreateGenerationJobParams {
   privacy?: boolean
   idempotencyKey: string
   requestId?: string
+  source?: 'WEB_APP' | 'API'
+  apiKeyId?: string
 }
 
 export interface CreateGenerationJobResult {
   job: GenerationJobWithGeneration
   duplicate: boolean
+  status: 'created' | 'duplicate'
+  creditsCharged: boolean
 }
 
 export class ValidationError extends Error {
@@ -160,8 +164,17 @@ export function validateIdempotencyKey(
 export async function createGenerationJob(
   params: CreateGenerationJobParams,
 ): Promise<CreateGenerationJobResult> {
-  const { userId, prompt, style, model, privacy, idempotencyKey, requestId } =
-    params
+  const {
+    userId,
+    prompt,
+    style,
+    model,
+    privacy,
+    idempotencyKey,
+    requestId,
+    source,
+    apiKeyId,
+  } = params
 
   const sanitizedPrompt = validateAndSanitizePrompt(prompt)
   const validatedStyle = validateStyle(style)
@@ -195,7 +208,12 @@ export async function createGenerationJob(
 
   if (existingJob) {
     if (existingJob.requestHash === requestHash) {
-      return { job: existingJob, duplicate: true }
+      return {
+        job: existingJob,
+        duplicate: true,
+        status: 'duplicate',
+        creditsCharged: false,
+      }
     }
 
     throw new ConflictError(
@@ -215,6 +233,8 @@ export async function createGenerationJob(
         privacy: isPrivate,
         idempotencyKey: validatedIdempotencyKey,
         requestHash,
+        source: source || 'WEB_APP',
+        apiKeyId,
       },
       select: generationJobSelect,
     })
@@ -231,7 +251,12 @@ export async function createGenerationJob(
       'Generation job created',
     )
 
-    return { job: generationJob, duplicate: false }
+    return {
+      job: generationJob,
+      duplicate: false,
+      status: 'created',
+      creditsCharged: true,
+    }
   } catch (createError) {
     const isUniqueConstraintViolation =
       createError instanceof Prisma.PrismaClientKnownRequestError &&
@@ -248,7 +273,12 @@ export async function createGenerationJob(
 
       if (conflictingJob) {
         if (conflictingJob.requestHash === requestHash) {
-          return { job: conflictingJob, duplicate: true }
+          return {
+            job: conflictingJob,
+            duplicate: true,
+            status: 'duplicate',
+            creditsCharged: false,
+          }
         }
 
         throw new ConflictError(
