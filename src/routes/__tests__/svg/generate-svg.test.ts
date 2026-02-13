@@ -26,6 +26,13 @@ jest.mock('../../../jobs/svgGenerationQueue', () => ({
     getJobCounts: jest.fn(),
   },
 }))
+jest.mock('../../../services/svgGenerationService', () => {
+  const actual = jest.requireActual('../../../services/svgGenerationService')
+  return {
+    ...actual,
+    enqueueGenerationJob: jest.fn(),
+  }
+})
 jest.mock('../../../middleware/auth', () => ({
   __esModule: true,
   authMiddleware: (req: any, res: any, next: any) => {
@@ -49,10 +56,8 @@ import { VALID_SVG_STYLES } from '../../../constants/svgStyles'
 import { DEFAULT_MODEL } from '../../../constants/models'
 import { computeRequestHash } from '../../../utils/computeRequestHash'
 import { authMiddleware } from '../../../middleware/auth'
-import {
-  enqueueSvgGenerationJob,
-  svgGenerationQueue,
-} from '../../../jobs/svgGenerationQueue'
+import { svgGenerationQueue } from '../../../jobs/svgGenerationQueue'
+import { enqueueGenerationJob } from '../../../services/svgGenerationService'
 
 let app: express.Express
 const basePrompt = 'A valid prompt for SVG generation'
@@ -108,7 +113,7 @@ describe('POST /generate-svg', () => {
           update: prisma.generationJob.update,
           updateMany: prisma.generationJob.updateMany,
         },
-      })
+      }),
     )
     ;(svgGenerationQueue.getJobCounts as jest.Mock).mockResolvedValue({
       waiting: 0,
@@ -197,6 +202,8 @@ describe('POST /generate-svg', () => {
         privacy: basePrivacy,
         idempotencyKey: 'key-123',
         requestHash: expect.any(String),
+        source: 'WEB_APP',
+        apiKeyId: undefined,
       },
       select: expect.objectContaining({
         id: true,
@@ -220,7 +227,7 @@ describe('POST /generate-svg', () => {
         }),
       }),
     })
-    expect(enqueueSvgGenerationJob).toHaveBeenCalledWith('job-123', 'user1')
+    expect(enqueueGenerationJob).toHaveBeenCalledWith('job-123', 'user1')
     expect(svgGenerationQueue.getJobCounts).toHaveBeenCalled()
     expect(res.headers.location).toContain('/api/svg/generation-jobs/job-123')
   })
@@ -242,7 +249,7 @@ describe('POST /generate-svg', () => {
     expect(res.status).toBe(202)
     expect(res.body.job.id).toBe('job-existing')
     expect(prisma.generationJob.create).not.toHaveBeenCalled()
-    expect(enqueueSvgGenerationJob).not.toHaveBeenCalled()
+    expect(enqueueGenerationJob).not.toHaveBeenCalled()
   })
 
   it('should reject overly long idempotency keys', async () => {
@@ -262,7 +269,7 @@ describe('POST /generate-svg', () => {
 
   it('should handle internal server error', async () => {
     ;(prisma.generationJob.create as jest.Mock).mockRejectedValue(
-      new Error('DB error')
+      new Error('DB error'),
     )
 
     const res = await request(app)
@@ -286,6 +293,6 @@ describe('POST /generate-svg', () => {
     expect(res.status).toBe(400)
     expect(res.body.error).toMatch(/idempotency/i)
     expect(prisma.generationJob.create).not.toHaveBeenCalled()
-    expect(enqueueSvgGenerationJob).not.toHaveBeenCalled()
+    expect(enqueueGenerationJob).not.toHaveBeenCalled()
   })
 })

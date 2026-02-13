@@ -3,11 +3,12 @@ import { Prisma, GenerationJobStatus } from '@prisma/client'
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth'
 import prisma from '../lib/prisma'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
-import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
+import { VALID_MODELS, AiModel } from '../constants/models'
 import { getUserId, requireUserId } from '../utils/getUserId'
-import { sanitizeInput } from '../utils/sanitizeInput'
-import { computeRequestHash } from '../utils/computeRequestHash'
-import { dailyGenerationLimit } from '../middleware/dailyLimit'
+import {
+  monthlyGenerationQuota,
+  incrementGenerationQuota,
+} from '../middleware/monthlyGenerationQuota'
 import {
   downloadLimiter,
   svgGenerationLimiter,
@@ -16,11 +17,19 @@ import { logger } from '../lib/logger'
 import { createJobFailedNotification } from '../services/notificationService'
 import { cache } from '../lib/cache'
 import { IS_PRODUCTION, PUBLIC_ASSETS_BASE_URL } from '../config/env'
-import {
-  enqueueSvgGenerationJob,
-  svgGenerationQueue,
-} from '../jobs/svgGenerationQueue'
+import { svgGenerationQueue } from '../jobs/svgGenerationQueue'
 import { getDownloadUrl, getSvgSourceFromS3 } from '../lib/s3'
+import {
+  createGenerationJob,
+  enqueueGenerationJob,
+  getDuplicateStatus,
+  formatGenerationJobResponse,
+  generationJobSelect,
+  ValidationError,
+  ConflictError,
+  NotFoundError,
+  type GenerationJobWithGeneration,
+} from '../services/svgGenerationService'
 
 const router = Router()
 
@@ -31,247 +40,38 @@ interface GenerateSvgBody {
   privacy?: boolean
 }
 
-const generationJobSelect = Prisma.validator<Prisma.GenerationJobSelect>()({
-  id: true,
-  userId: true,
-  prompt: true,
-  style: true,
-  model: true,
-  privacy: true,
-  status: true,
-  createdAt: true,
-  startedAt: true,
-  finishedAt: true,
-  errorCode: true,
-  errorMessage: true,
-  generationId: true,
-  requestHash: true,
-  generation: {
-    select: {
-      id: true,
-      prompt: true,
-      style: true,
-      model: true,
-      privacy: true,
-      svg: true,
-      createdAt: true,
-    },
-  },
-})
-
-type GenerationJobWithGeneration = Prisma.GenerationJobGetPayload<{
-  select: typeof generationJobSelect
-}>
-
-function getDuplicateStatus(job: GenerationJobWithGeneration) {
-  return job.status === 'SUCCEEDED' || job.status === 'FAILED' ? 200 : 202
-}
-
-function formatGenerationJobResponse(job: GenerationJobWithGeneration) {
-  return {
-    id: job.id,
-    status: job.status,
-    prompt: job.prompt,
-    style: job.style,
-    model: job.model,
-    privacy: job.privacy,
-    createdAt: job.createdAt,
-    startedAt: job.startedAt,
-    finishedAt: job.finishedAt,
-    errorCode: job.errorCode,
-    errorMessage: job.errorMessage,
-    generationId: job.generationId,
-    generation: job.generation
-      ? {
-          id: job.generation.id,
-          prompt: job.generation.prompt,
-          style: job.generation.style,
-          model: job.generation.model,
-          privacy: job.generation.privacy,
-          svg: job.generation.svg,
-          createdAt: job.generation.createdAt,
-        }
-      : null,
-  }
-}
-
 router.post(
   '/generate-svg',
   authMiddleware,
   svgGenerationLimiter,
-  dailyGenerationLimit(50),
+  monthlyGenerationQuota(),
   async (req: Request<{}, {}, GenerateSvgBody>, res: Response) => {
     try {
       const { prompt, style, model, privacy } = req.body
       const userId = requireUserId(req)
 
-      if (!prompt) {
-        return res.status(400).json({ error: 'Prompt is required' })
-      }
-      if (prompt.length < 10 || prompt.length > 500) {
-        return res.status(400).json({
-          error: 'Prompt length must be between 10 and 500 characters',
-        })
-      }
-      const sanitizedPrompt = sanitizeInput(prompt)
+      const idempotencyKey = req.header('x-idempotency-key')?.trim()
 
-      const forbiddenPatterns = [
-        /\<script/i,
-        /javascript:/i,
-        /onerror=/i,
-        /onload=/i,
-        /<iframe/i,
-        /eval\(/i,
-        /system.*prompt/i,
-        /ignore.*instruction/i,
-        /you are now/i,
-      ]
-
-      for (const pattern of forbiddenPatterns) {
-        if (pattern.test(sanitizedPrompt)) {
-          return res.status(400).json({
-            error:
-              'Prompt contains forbidden content. Please rephrase your request.',
-          })
-        }
-      }
-
-      if (!style || !VALID_SVG_STYLES.includes(style as SvgStyle)) {
-        return res.status(400).json({
-          error: `Invalid style. Must be one of: ${VALID_SVG_STYLES.join(
-            ', ',
-          )}`,
-        })
-      }
-
-      if (model && !VALID_MODELS.includes(model as AiModel)) {
-        return res.status(400).json({
-          error: `Invalid model. Must be one of: ${VALID_MODELS.join(', ')}`,
-        })
-      }
-      const selectedModel = model || DEFAULT_MODEL
-      const isPrivate = privacy ?? false
-
-      // Clients must send an idempotency key so retries (network/app reload) don't double-charge
-      // credits or enqueue duplicate background work for the same user action.
-      const rawIdempotencyKey = req.header('x-idempotency-key')?.trim()
-      if (!rawIdempotencyKey) {
-        logger.warn(
-          {
-            userId,
-            requestId: req.requestId,
-            userAgent: req.get('user-agent'),
-            ip: req.ip,
-          },
-          'Missing x-idempotency-key header for SVG generation request',
-        )
-
-        return res.status(400).json({
-          error:
-            'Missing x-idempotency-key header. Please retry and ensure your client sends an idempotency key.',
-        })
-      }
-      if (rawIdempotencyKey && rawIdempotencyKey.length > 128) {
-        return res
-          .status(400)
-          .json({ error: 'Idempotency key must be 128 characters or fewer' })
-      }
-
-      // Hash of the request parameters used to detect idempotency-key reuse with different inputs.
-      // Same key + same hash => safe duplicate; same key + different hash => reject as a conflict.
-      const requestHash = computeRequestHash({
-        prompt: sanitizedPrompt,
+      // Create generation job (validation + idempotency check)
+      const { job, duplicate } = await createGenerationJob({
+        userId,
+        prompt,
         style,
-        model: selectedModel,
-        privacy: isPrivate,
+        model,
+        privacy,
+        idempotencyKey: idempotencyKey || '',
+        requestId: req.requestId,
       })
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true },
-      })
-
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' })
-      }
-
-      const existingJob = await prisma.generationJob.findFirst({
-        where: {
-          userId,
-          idempotencyKey: rawIdempotencyKey,
-        },
-        select: generationJobSelect,
-      })
-
-      if (existingJob) {
-        // If a job already exists for this idempotency key, return the existing job instead of
-        // creating another job (and charging credits again). This makes the endpoint safe to retry.
-        if (existingJob.requestHash === requestHash) {
-          return res
-            .status(getDuplicateStatus(existingJob))
-            .location(`/api/svg/generation-jobs/${existingJob.id}`)
-            .json({
-              job: formatGenerationJobResponse(existingJob),
-              duplicate: true,
-            })
-        } else {
-          return res.status(409).json({
-            error: 'Request already in progress',
+      // If duplicate, return immediately (already charged)
+      if (duplicate) {
+        return res
+          .status(getDuplicateStatus(job))
+          .location(`/api/svg/generation-jobs/${job.id}`)
+          .json({
+            job: formatGenerationJobResponse(job),
+            duplicate: true,
           })
-        }
-      }
-
-      let generationJob: GenerationJobWithGeneration
-
-      try {
-        generationJob = await prisma.generationJob.create({
-          data: {
-            userId,
-            prompt: sanitizedPrompt,
-            style,
-            model: selectedModel,
-            privacy: isPrivate,
-            idempotencyKey: rawIdempotencyKey,
-            requestHash,
-          },
-          select: generationJobSelect,
-        })
-      } catch (createError) {
-        // The lookup above is not enough under concurrency; two requests can race here.
-        // Handle the unique constraint case by reading back and returning the existing job.
-        const isUniqueConstraintViolation =
-          rawIdempotencyKey &&
-          createError instanceof Prisma.PrismaClientKnownRequestError &&
-          createError.code === 'P2002'
-
-        if (isUniqueConstraintViolation) {
-          const conflictingJob = await prisma.generationJob.findFirst({
-            where: {
-              userId,
-              idempotencyKey: rawIdempotencyKey,
-            },
-            select: generationJobSelect,
-          })
-
-          if (conflictingJob) {
-            if (conflictingJob.requestHash === requestHash) {
-              return res
-                .status(getDuplicateStatus(conflictingJob))
-                .location(`/api/svg/generation-jobs/${conflictingJob.id}`)
-                .json({
-                  job: formatGenerationJobResponse(conflictingJob),
-                  duplicate: true,
-                })
-            }
-
-            return res.status(409).json({
-              error:
-                'Idempotency key already used with different request parameters',
-            })
-          }
-        }
-
-        throw createError
       }
 
       // Debit and job flag update must be atomic to prevent partial state (e.g. charge succeeded but
@@ -285,7 +85,7 @@ router.post(
         if (debitResult.count === 0) return false
 
         await tx.generationJob.update({
-          where: { id: generationJob.id },
+          where: { id: job.id },
           data: { creditsCharged: true },
         })
 
@@ -294,7 +94,7 @@ router.post(
 
       if (!charged) {
         const failedJob = await prisma.generationJob.update({
-          where: { id: generationJob.id },
+          where: { id: job.id },
           data: {
             status: GenerationJobStatus.FAILED,
             finishedAt: new Date(),
@@ -307,7 +107,7 @@ router.post(
 
         await createJobFailedNotification({
           userId,
-          jobId: generationJob.id,
+          jobId: job.id,
         })
         return res.status(402).json({
           error: failedJob.errorMessage,
@@ -317,16 +117,19 @@ router.post(
       try {
         // After credits are charged, enqueue the async work. If enqueue fails we refund the credit
         // in an idempotent way (claim + refund) to avoid double refunds on retried error handling.
-        await enqueueSvgGenerationJob(generationJob.id, userId)
+        await enqueueGenerationJob(job.id, userId)
+
+        // Increment generation quota (non-blocking)
+        await incrementGenerationQuota(userId)
       } catch (error) {
         logger.error(
-          { error, jobId: generationJob.id, userId, requestId: req.requestId },
+          { error, jobId: job.id, userId, requestId: req.requestId },
           'Failed to enqueue SVG generation job',
         )
         await prisma.$transaction(async (tx) => {
           const refundClaim = await tx.generationJob.updateMany({
             where: {
-              id: generationJob.id,
+              id: job.id,
               status: GenerationJobStatus.QUEUED,
               creditsCharged: true,
               creditsRefunded: false,
@@ -352,7 +155,7 @@ router.post(
 
         await createJobFailedNotification({
           userId,
-          jobId: generationJob.id,
+          jobId: job.id,
         })
         return res.status(503).json({
           error: 'Failed to start generation. Please retry.',
@@ -372,15 +175,25 @@ router.post(
       }
 
       const responsePayload = {
-        job: formatGenerationJobResponse(generationJob),
+        job: formatGenerationJobResponse(job),
         ...(jobCounts ? { queue: jobCounts } : {}),
       }
 
       res
         .status(202)
-        .location(`/api/svg/generation-jobs/${generationJob.id}`)
+        .location(`/api/svg/generation-jobs/${job.id}`)
         .json(responsePayload)
     } catch (error) {
+      if (error instanceof ValidationError) {
+        return res.status(400).json({ error: error.message })
+      }
+      if (error instanceof ConflictError) {
+        return res.status(409).json({ error: error.message })
+      }
+      if (error instanceof NotFoundError) {
+        return res.status(404).json({ error: error.message })
+      }
+
       logger.error({ error, userId: getUserId(req) }, 'SVG Generation error')
       res.status(500).json({ error: 'Internal server error' })
     }
