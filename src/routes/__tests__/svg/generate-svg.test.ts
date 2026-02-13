@@ -202,6 +202,8 @@ describe('POST /generate-svg', () => {
         privacy: basePrivacy,
         idempotencyKey: 'key-123',
         requestHash: expect.any(String),
+        source: 'WEB_APP',
+        apiKeyId: undefined,
       },
       select: expect.objectContaining({
         id: true,
