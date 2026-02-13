@@ -81,15 +81,11 @@ export async function createApiKey(
     expiresAt,
   } = params
 
-  console.log('🔑 Creating API key:', { userId, name, environment })
-
   // 1. Get user and check plan
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { plan: true },
   })
-
-  console.log('👤 User found:', { userId, plan: user?.plan })
 
   if (!user) {
     throw new Error('User not found')

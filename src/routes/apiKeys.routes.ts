@@ -74,9 +74,6 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       'Failed to create API key',
     )
 
-    // Log to console for development
-    console.error('❌ API Key Creation Error:', error)
-
     if (error.message?.includes('API access requires')) {
       return res.status(403).json({ error: error.message })
     }
