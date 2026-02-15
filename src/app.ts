@@ -11,6 +11,7 @@ import supportRoutes from './routes/support.routes'
 import adminRoutes from './routes/admin.routes'
 import apiKeysRoutes from './routes/apiKeys.routes'
 import v1Routes from './routes/v1.routes'
+import plansRoutes from './routes/plans.routes'
 
 import passport from './config/passport'
 import {
@@ -182,6 +183,7 @@ app.get('/api/csrf', (req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/plans', plansRoutes)
 app.use('/api/user', validateCsrfToken, userRoutes)
 app.use('/api/svg', validateCsrfToken, svgRoutes)
 app.use('/api/notification', validateCsrfToken, notificationRoutes)
