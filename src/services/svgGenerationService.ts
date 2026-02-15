@@ -142,11 +142,12 @@ export function validateModel(model?: string): AiModel {
 
 export function validateIdempotencyKey(
   idempotencyKey: string | undefined,
+  userId: string,
+  requestHash: string,
 ): string {
+  // If no key provided, auto-generate one based on user + request hash
   if (!idempotencyKey) {
-    throw new ValidationError(
-      'Missing x-idempotency-key header. Please retry and ensure your client sends an idempotency key.',
-    )
+    return `auto-${userId}-${requestHash}`.substring(0, 128)
   }
 
   if (idempotencyKey.length > 128) {
@@ -180,7 +181,6 @@ export async function createGenerationJob(
   const validatedStyle = validateStyle(style)
   const selectedModel = validateModel(model)
   const isPrivate = privacy ?? false
-  const validatedIdempotencyKey = validateIdempotencyKey(idempotencyKey)
 
   const requestHash = computeRequestHash({
     prompt: sanitizedPrompt,
@@ -188,6 +188,12 @@ export async function createGenerationJob(
     model: selectedModel,
     privacy: isPrivate,
   })
+
+  const validatedIdempotencyKey = validateIdempotencyKey(
+    idempotencyKey,
+    userId,
+    requestHash,
+  )
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
