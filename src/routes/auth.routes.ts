@@ -383,6 +383,7 @@ router.get(
       name: user.name,
       email: user.email,
       avatar: user.avatar,
+      plan: user.plan,
       credits: user.credits || 0,
     }
 
