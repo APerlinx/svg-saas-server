@@ -284,15 +284,23 @@ describe('POST /generate-svg', () => {
     expect(res.body.error).toMatch(/Internal server error/)
   })
 
-  it('should return 400 if idempotency key is missing', async () => {
+  it('should auto-generate idempotency key if missing', async () => {
     const res = await request(app).post('/api/svg/generate-svg').send({
       prompt: basePrompt,
       style: baseStyle,
     })
 
-    expect(res.status).toBe(400)
-    expect(res.body.error).toMatch(/idempotency/i)
-    expect(prisma.generationJob.create).not.toHaveBeenCalled()
-    expect(enqueueGenerationJob).not.toHaveBeenCalled()
+    expect(res.status).toBe(202)
+    expect(res.body.job.id).toBe('job-123')
+    expect(prisma.generationJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user1',
+        prompt: basePrompt,
+        style: baseStyle,
+        idempotencyKey: expect.stringMatching(/^auto-user1-/),
+      }),
+      select: expect.any(Object),
+    })
+    expect(enqueueGenerationJob).toHaveBeenCalledWith('job-123', 'user1')
   })
 })

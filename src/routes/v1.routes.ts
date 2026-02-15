@@ -13,6 +13,9 @@ import {
 import {
   createGenerationJob,
   enqueueGenerationJob,
+  ValidationError,
+  ConflictError,
+  NotFoundError,
 } from '../services/svgGenerationService'
 import { logApiUsage } from '../services/usageTrackingService'
 import { logger } from '../lib/logger'
@@ -204,6 +207,68 @@ router.post(
         estimatedCompletionTime: '30-60 seconds',
       })
     } catch (error: any) {
+      // Handle validation errors
+      if (error instanceof ValidationError) {
+        logApiUsage({
+          apiKeyId,
+          userId,
+          endpoint: '/v1/svg/generate',
+          method: 'POST',
+          statusCode: 400,
+          latencyMs: Date.now() - startTime,
+          creditsUsed: 0,
+        }).catch((err) =>
+          logger.error({ err, apiKeyId, userId }, 'Failed to log API usage'),
+        )
+
+        setRateLimitHeaders(req, res)
+
+        return res.status(400).json({
+          error: error.message,
+        })
+      }
+
+      if (error instanceof ConflictError) {
+        logApiUsage({
+          apiKeyId,
+          userId,
+          endpoint: '/v1/svg/generate',
+          method: 'POST',
+          statusCode: 409,
+          latencyMs: Date.now() - startTime,
+          creditsUsed: 0,
+        }).catch((err) =>
+          logger.error({ err, apiKeyId, userId }, 'Failed to log API usage'),
+        )
+
+        setRateLimitHeaders(req, res)
+
+        return res.status(409).json({
+          error: error.message,
+        })
+      }
+
+      // Handle not found errors
+      if (error instanceof NotFoundError) {
+        logApiUsage({
+          apiKeyId,
+          userId,
+          endpoint: '/v1/svg/generate',
+          method: 'POST',
+          statusCode: 404,
+          latencyMs: Date.now() - startTime,
+          creditsUsed: 0,
+        }).catch((err) =>
+          logger.error({ err, apiKeyId, userId }, 'Failed to log API usage'),
+        )
+
+        setRateLimitHeaders(req, res)
+
+        return res.status(404).json({
+          error: error.message,
+        })
+      }
+
       logger.error(
         {
           error,
