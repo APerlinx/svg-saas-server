@@ -1,10 +1,8 @@
 import request from 'supertest'
 import express from 'express'
-import router from '../../v1.routes'
 import { GenerationJobStatus } from '@prisma/client'
-const prisma = require('../../../lib/prisma')
 
-// Mocks
+// Mock everything BEFORE importing the router
 jest.mock('../../../lib/prisma', () => ({
   user: {
     findUnique: jest.fn(),
@@ -61,6 +59,7 @@ jest.mock('../../../utils/rateLimitHeaders', () => ({
 jest.mock('../../../lib/logger', () => ({
   logger: {
     info: jest.fn(),
+    warn: jest.fn(),
     error: jest.fn(),
   },
 }))
@@ -68,6 +67,17 @@ jest.mock('../../../lib/logger', () => ({
 jest.mock('../../../config/env', () => ({
   PUBLIC_ASSETS_BASE_URL: 'https://cdn.example.com',
 }))
+
+jest.mock('../../../lib/bullmq', () => ({
+  createBullMqConnection: jest.fn(() => ({
+    on: jest.fn(),
+    quit: jest.fn(),
+  })),
+}))
+
+// Import router AFTER mocks are set up
+const router = require('../../v1.routes').default
+const prisma = require('../../../lib/prisma')
 
 const app = express()
 app.use(express.json())
