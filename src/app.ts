@@ -43,7 +43,8 @@ const previewOriginRegex = process.env.FRONTEND_PREVIEW_REGEX
   ? new RegExp(process.env.FRONTEND_PREVIEW_REGEX)
   : null
 
-const corsOptions: cors.CorsOptions = {
+// CORS configuration for web app routes
+const webAppCorsOptions: cors.CorsOptions = {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true)
     if (origin === process.env.FRONTEND_URL) return cb(null, true)
@@ -56,25 +57,13 @@ const corsOptions: cors.CorsOptions = {
   allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-idempotency-key'],
 }
 
-// Public API routes (/v1/*) allow any origin (secured by API key)
-app.use(
-  '/v1',
-  cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false,
-  }),
-)
-
-// Restrictive CORS for web app routes (skip /v1)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/v1')) {
-    return next()
-  }
-  cors(corsOptions)(req, res, next)
-})
-app.options(/^(?!\/v1).*$/, cors(corsOptions))
+// CORS configuration for public API routes
+const publicApiCorsOptions: cors.CorsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-API-Key'],
+  credentials: false,
+}
 
 // Security headers
 const cloudFrontDomain = PUBLIC_ASSETS_BASE_URL
@@ -199,15 +188,29 @@ app.get('/api/csrf', (req, res) => {
   res.json({ csrfToken: req.cookies['csrf-token'] ?? (req as any).csrfToken })
 })
 
-app.use('/api/auth', authRoutes)
-app.use('/api/plans', plansRoutes)
-app.use('/api/user', validateCsrfToken, userRoutes)
-app.use('/api/svg', validateCsrfToken, svgRoutes)
-app.use('/api/notification', validateCsrfToken, notificationRoutes)
-app.use('/api/support', validateCsrfToken, supportRoutes)
-app.use('/api/keys', validateCsrfToken, apiKeysRoutes)
-app.use('/api/admin', adminRoutes)
-app.use('/v1', v1Routes)
+// Web app routes - restrictive CORS
+app.use('/api/auth', cors(webAppCorsOptions), authRoutes)
+app.use('/api/plans', cors(webAppCorsOptions), plansRoutes)
+app.use('/api/user', cors(webAppCorsOptions), validateCsrfToken, userRoutes)
+app.use('/api/svg', cors(webAppCorsOptions), validateCsrfToken, svgRoutes)
+app.use(
+  '/api/notification',
+  cors(webAppCorsOptions),
+  validateCsrfToken,
+  notificationRoutes,
+)
+app.use(
+  '/api/support',
+  cors(webAppCorsOptions),
+  validateCsrfToken,
+  supportRoutes,
+)
+app.use('/api/keys', cors(webAppCorsOptions), validateCsrfToken, apiKeysRoutes)
+app.use('/api/admin', cors(webAppCorsOptions), adminRoutes)
+
+// Public API routes - open CORS
+app.use('/v1', cors(publicApiCorsOptions), v1Routes)
+app.options('/v1/*', cors(publicApiCorsOptions))
 
 app.use(
   (
