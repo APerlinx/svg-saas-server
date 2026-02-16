@@ -210,7 +210,6 @@ app.use('/api/admin', cors(webAppCorsOptions), adminRoutes)
 
 // Public API routes - open CORS
 app.use('/v1', cors(publicApiCorsOptions), v1Routes)
-app.options('/v1/*', cors(publicApiCorsOptions))
 
 app.use(
   (
