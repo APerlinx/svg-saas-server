@@ -59,6 +59,17 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions))
 app.options(/^.*$/, cors(corsOptions))
 
+// Public API routes (/v1/*) allow any origin (secured by API key)
+app.use(
+  '/v1',
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
+  }),
+)
+
 // Security headers
 const cloudFrontDomain = PUBLIC_ASSETS_BASE_URL
   ? new URL(PUBLIC_ASSETS_BASE_URL).origin
