@@ -56,9 +56,6 @@ const corsOptions: cors.CorsOptions = {
   allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-idempotency-key'],
 }
 
-app.use(cors(corsOptions))
-app.options(/^.*$/, cors(corsOptions))
-
 // Public API routes (/v1/*) allow any origin (secured by API key)
 app.use(
   '/v1',
@@ -69,6 +66,15 @@ app.use(
     credentials: false,
   }),
 )
+
+// Restrictive CORS for web app routes (skip /v1)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/v1')) {
+    return next()
+  }
+  cors(corsOptions)(req, res, next)
+})
+app.options(/^(?!\/v1).*$/, cors(corsOptions))
 
 // Security headers
 const cloudFrontDomain = PUBLIC_ASSETS_BASE_URL
