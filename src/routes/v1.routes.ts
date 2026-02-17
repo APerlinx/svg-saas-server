@@ -10,6 +10,8 @@ import {
   monthlyGenerationQuota,
   incrementGenerationQuota,
 } from '../middleware/monthlyGenerationQuota'
+import { createPlanRateLimiter } from '../middleware/rateLimiter'
+import { processUserCreditRefill } from '../services/creditRefillService'
 import {
   createGenerationJob,
   enqueueGenerationJob,
@@ -33,6 +35,7 @@ const router = Router()
 router.post(
   '/svg/generate',
   apiKeyAuth,
+  createPlanRateLimiter(),
   monthlyGenerationQuota(),
   async (req: Request, res: Response) => {
     const startTime = Date.now()
@@ -40,6 +43,9 @@ router.post(
     const apiKeyId = req.apiKey!.id
 
     try {
+      // Process credit refill if due
+      await processUserCreditRefill(userId)
+
       // Validate request body
       if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({
@@ -60,7 +66,7 @@ router.post(
         apiKeyId,
       })
 
-      // Handle duplicate requests (already processed)
+      // Handle duplicate request
       if (result.status === 'duplicate') {
         logApiUsage({
           apiKeyId,
@@ -135,7 +141,7 @@ router.post(
         })
       }
 
-      // Try to enqueue job, refund credit on failure
+      // Enqueue job and refund on enqueue failure
       try {
         await enqueueGenerationJob(result.job.id, userId)
         await incrementGenerationQuota(userId)
@@ -312,6 +318,7 @@ router.post(
 router.get(
   '/svg/job/:id',
   apiKeyAuth,
+  createPlanRateLimiter(),
   monthlyGenerationQuota({ skipCheck: true }),
   async (req: Request, res: Response) => {
     const startTime = Date.now()

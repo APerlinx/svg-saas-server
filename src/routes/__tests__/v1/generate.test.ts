@@ -22,7 +22,7 @@ jest.mock('../../../middleware/apiKeyAuth', () => ({
     req.apiKey = {
       id: 'key-123',
       userId: 'user-123',
-      plan: 'PRO',
+      plan: 'SUPPORTER',
     }
     next()
   },
@@ -31,6 +31,14 @@ jest.mock('../../../middleware/apiKeyAuth', () => ({
 jest.mock('../../../middleware/monthlyGenerationQuota', () => ({
   monthlyGenerationQuota: () => (req: any, res: any, next: any) => next(),
   incrementGenerationQuota: jest.fn(),
+}))
+
+jest.mock('../../../middleware/rateLimiter', () => ({
+  createPlanRateLimiter: () => (req: any, res: any, next: any) => next(),
+}))
+
+jest.mock('../../../services/creditRefillService', () => ({
+  processUserCreditRefill: jest.fn().mockResolvedValue(100), // Return credit balance
 }))
 
 jest.mock('../../../utils/getUserId', () => ({

@@ -70,12 +70,22 @@ function validateSvg(svg) {
 }
 async function generateSvg(prompt, style, model) {
     if (env_1.IS_TEST) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+        return {
+            svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <rect x="32" y="32" width="192" height="192" rx="16" fill="none" stroke="#111111" stroke-width="8"/>
   <circle cx="128" cy="128" r="32" fill="#111111"/>
-  </svg>`;
+  </svg>`,
+            metrics: {
+                model: 'test',
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+                latencyMs: 0,
+                attempts: 0,
+            },
+        };
     }
-    const resolvedModel = model || 'gpt-4o';
+    const resolvedModel = model || 'gpt-5.2-2025-12-11';
     const baseMessages = [
         {
             role: 'system',
@@ -167,13 +177,26 @@ Focus on clear shapes, good visual hierarchy, and clean geometry.
 Use a neutral color palette (black/white/gray) unless explicit colors are requested.`,
         },
     ];
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalTokens = 0;
+    let totalLatencyMs = 0;
+    let attempts = 0;
     const callModel = async (messages) => {
-        var _a;
+        var _a, _b, _c, _d;
+        const startTime = Date.now();
+        attempts++;
         const response = await openai_1.openai.chat.completions.create({
             model: resolvedModel,
             messages,
         });
-        const content = (_a = response.choices[0].message) === null || _a === void 0 ? void 0 : _a.content;
+        const latencyMs = Date.now() - startTime;
+        totalLatencyMs += latencyMs;
+        // Accumulate token counts
+        totalPromptTokens += ((_a = response.usage) === null || _a === void 0 ? void 0 : _a.prompt_tokens) || 0;
+        totalCompletionTokens += ((_b = response.usage) === null || _b === void 0 ? void 0 : _b.completion_tokens) || 0;
+        totalTokens += ((_c = response.usage) === null || _c === void 0 ? void 0 : _c.total_tokens) || 0;
+        const content = (_d = response.choices[0].message) === null || _d === void 0 ? void 0 : _d.content;
         if (!content)
             throw new Error('No SVG code generated');
         return extractSingleSvg(content);
@@ -181,8 +204,19 @@ Use a neutral color palette (black/white/gray) unless explicit colors are reques
     // Attempt 1
     let svg = await callModel(baseMessages);
     let errors = validateSvg(svg);
-    if (errors.length === 0)
-        return svg;
+    if (errors.length === 0) {
+        return {
+            svg,
+            metrics: {
+                model: resolvedModel,
+                promptTokens: totalPromptTokens,
+                completionTokens: totalCompletionTokens,
+                totalTokens,
+                latencyMs: totalLatencyMs,
+                attempts,
+            },
+        };
+    }
     // Attempt 2: repair once
     const repairMessage = {
         role: 'user',
@@ -200,5 +234,15 @@ ${svg}`,
     if (errors.length > 0) {
         throw new Error(`Generated SVG failed validation: ${errors.join('; ')}`);
     }
-    return svg;
+    return {
+        svg,
+        metrics: {
+            model: resolvedModel,
+            promptTokens: totalPromptTokens,
+            completionTokens: totalCompletionTokens,
+            totalTokens,
+            latencyMs: totalLatencyMs,
+            attempts,
+        },
+    };
 }

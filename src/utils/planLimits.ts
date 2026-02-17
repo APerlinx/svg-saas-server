@@ -3,21 +3,24 @@
  * Single source of truth for all plan-related limits
  */
 
-export type PlanType = 'FREE' | 'PRO' | 'ENTERPRISE'
+import { logger } from '../lib/logger'
+
+export type PlanType = 'FREE' | 'SUPPORTER'
 
 export interface PlanLimits {
   // Credits
-  creditsPerMonth: number
-  overagePrice?: number // Price per additional credit (only for paid plans)
+  startingCredits: number // Initial credits on plan activation
+  creditRefillAmount: number // Credits added each refill cycle
+  creditRefillDays: number // Refill cycle length in days
 
-  // Unified Generation Limits (applies to both web app + API)
+  // Unified generation limit (web + API)
   generationsPerMonth: number
 
   // API Access
   apiAccess: boolean
   maxApiKeys: number
 
-  // Rate Limits (requests per time window, not generations)
+  // Request rate limits
   rateLimits: {
     perMinute: number
     perHour: number
@@ -25,79 +28,58 @@ export interface PlanLimits {
   }
 
   // Support
-  supportLevel: 'community' | 'email' | 'priority' | 'dedicated'
-  supportChannel?: 'email' | 'slack'
+  supportLevel: 'community' | 'email' | 'priority'
+  supportChannel?: 'email' | 'discord'
 }
 
 export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
   FREE: {
     // Credits
-    creditsPerMonth: 3,
+    startingCredits: 100,
+    creditRefillAmount: 50,
+    creditRefillDays: 30,
 
-    // Unified Generations (web + API combined)
-    generationsPerMonth: 1000,
+    // Unified generations
+    generationsPerMonth: 100,
 
     // API Access
-    apiAccess: false,
-    maxApiKeys: 0,
+    apiAccess: true,
+    maxApiKeys: 1,
 
-    // Rate Limits
+    // Rate limits
     rateLimits: {
-      perMinute: 10,
-      perHour: 100,
-      perDay: 200,
+      perMinute: 5,
+      perHour: 20,
+      perDay: 100,
     },
 
     // Support
     supportLevel: 'community',
   },
 
-  PRO: {
+  SUPPORTER: {
     // Credits
-    creditsPerMonth: 100,
-    overagePrice: 0.1, // $0.10 per credit
+    startingCredits: 1000,
+    creditRefillAmount: 500,
+    creditRefillDays: 30,
 
-    // Unified Generations (web + API combined)
-    generationsPerMonth: 10000,
+    // Unified generations
+    generationsPerMonth: 1000,
 
     // API Access
     apiAccess: true,
-    maxApiKeys: 3,
+    maxApiKeys: 5,
 
-    // Rate Limits
+    // Rate limits
     rateLimits: {
-      perMinute: 60,
-      perHour: 1000,
-      perDay: 5000,
+      perMinute: 15,
+      perHour: 60,
+      perDay: 500,
     },
 
     // Support
-    supportLevel: 'priority',
+    supportLevel: 'email',
     supportChannel: 'email',
-  },
-
-  ENTERPRISE: {
-    // Credits
-    creditsPerMonth: 1000,
-    overagePrice: 0.08, // $0.08 per credit (discounted)
-
-    // Unified Generations (web + API combined)
-    generationsPerMonth: 100000,
-
-    // API Access
-    apiAccess: true,
-    maxApiKeys: 20,
-
-    // Rate Limits
-    rateLimits: {
-      perMinute: 300,
-      perHour: 10000,
-      perDay: Infinity,
-    },
-
-    // Support
-    supportLevel: 'dedicated',
-    supportChannel: 'slack',
   },
 } as const
 
@@ -105,14 +87,20 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
  * Get plan limits for a specific plan
  */
 export function getPlanLimits(plan: PlanType): PlanLimits {
-  return PLAN_LIMITS[plan]
+  if (plan in PLAN_LIMITS) {
+    return PLAN_LIMITS[plan]
+  }
+
+  // Default to FREE if unknown plan
+  logger.warn({ plan }, 'Unknown plan type, defaulting to FREE')
+  return PLAN_LIMITS.FREE
 }
 
 /**
  * Check if a plan has a specific feature
  */
 export function hasFeature(plan: PlanType, feature: keyof PlanLimits): boolean {
-  const limits = PLAN_LIMITS[plan]
+  const limits = getPlanLimits(plan)
   const value = limits[feature]
 
   if (typeof value === 'boolean') {
@@ -133,7 +121,7 @@ export function canCreateApiKey(
   plan: PlanType,
   currentKeyCount: number,
 ): boolean {
-  const limits = PLAN_LIMITS[plan]
+  const limits = getPlanLimits(plan)
 
   if (!limits.apiAccess) {
     return false
@@ -152,48 +140,35 @@ export function getUpgradeRecommendation(
     generationsUsed?: number
   },
 ): { shouldUpgrade: boolean; recommendedPlan?: PlanType; reason?: string } {
-  if (currentPlan === 'ENTERPRISE') {
+  // Already on SUPPORTER (highest tier)
+  if (currentPlan === 'SUPPORTER') {
     return { shouldUpgrade: false }
   }
 
-  const currentLimits = PLAN_LIMITS[currentPlan]
-
-  // Check if user needs API access
-  if (
-    !currentLimits.apiAccess &&
-    usage.generationsUsed &&
-    usage.generationsUsed > 0
-  ) {
-    return {
-      shouldUpgrade: true,
-      recommendedPlan: 'PRO',
-      reason: 'API access requires PRO plan',
-    }
-  }
-
-  // Check if user is hitting credit limits
-  if (
-    usage.creditsUsed &&
-    usage.creditsUsed >= currentLimits.creditsPerMonth * 0.8
-  ) {
-    const nextPlan = currentPlan === 'FREE' ? 'PRO' : 'ENTERPRISE'
-    return {
-      shouldUpgrade: true,
-      recommendedPlan: nextPlan,
-      reason: `You're using ${usage.creditsUsed} of ${currentLimits.creditsPerMonth} credits`,
-    }
-  }
+  const currentLimits = getPlanLimits(currentPlan)
 
   // Check if user is hitting generation limits
   if (
     usage.generationsUsed &&
     usage.generationsUsed >= currentLimits.generationsPerMonth * 0.8
   ) {
-    const nextPlan = currentPlan === 'FREE' ? 'PRO' : 'ENTERPRISE'
     return {
       shouldUpgrade: true,
-      recommendedPlan: nextPlan,
+      recommendedPlan: 'SUPPORTER',
       reason: `You're using ${usage.generationsUsed} of ${currentLimits.generationsPerMonth} generations`,
+    }
+  }
+
+  // Check if user needs more credits
+  if (
+    usage.creditsUsed &&
+    usage.creditsUsed >= currentLimits.startingCredits * 0.8
+  ) {
+    return {
+      shouldUpgrade: true,
+      recommendedPlan: 'SUPPORTER',
+      reason:
+        'Consider becoming a supporter for more credits and higher rate limits',
     }
   }
 
@@ -205,8 +180,7 @@ export function getUpgradeRecommendation(
  */
 export const PLAN_PRICES: Record<PlanType, number> = {
   FREE: 0,
-  PRO: 29,
-  ENTERPRISE: 99,
+  SUPPORTER: 5,
 } as const
 
 /**
@@ -214,15 +188,13 @@ export const PLAN_PRICES: Record<PlanType, number> = {
  */
 export const PLAN_NAMES: Record<PlanType, string> = {
   FREE: 'Free',
-  PRO: 'Pro',
-  ENTERPRISE: 'Enterprise',
+  SUPPORTER: 'Supporter',
 } as const
 
 /**
  * Plan descriptions for marketing
  */
 export const PLAN_DESCRIPTIONS: Record<PlanType, string> = {
-  FREE: 'Try ChatSVG for free',
-  PRO: 'For developers and small teams',
-  ENTERPRISE: 'For agencies and high-volume apps',
+  FREE: 'Perfect for trying ChatSVG and learning',
+  SUPPORTER: 'Help keep ChatSVG running with more credits and priority support',
 } as const

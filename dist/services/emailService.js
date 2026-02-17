@@ -1,17 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.sendAdminMagicLink = void 0;
 exports.sendPasswordResetEmail = sendPasswordResetEmail;
 exports.sendWelcomeEmail = sendWelcomeEmail;
+exports.sendSupportMessageEmail = sendSupportMessageEmail;
+exports.sendSupportConfirmationEmail = sendSupportConfirmationEmail;
 const resend_1 = require("resend");
 const env_1 = require("../config/env");
 const env_2 = require("../config/env");
+const env_3 = require("../config/env");
 const logger_1 = require("../lib/logger");
 const resend = new resend_1.Resend(env_1.RESEND_API_KEY);
+const EMAIL_FROM = 'chatSVG <noreply@chatsvg.dev>';
 async function sendPasswordResetEmail(email, resetToken) {
     const resetUrl = `${env_2.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
     try {
         await resend.emails.send({
-            from: 'chatSVG <onboarding@resend.dev>',
+            from: 'chatSVG <noreply@chatsvg.dev>',
             to: email,
             subject: 'Reset Your Password',
             html: `
@@ -58,7 +63,7 @@ async function sendPasswordResetEmail(email, resetToken) {
 async function sendWelcomeEmail(email, name) {
     try {
         await resend.emails.send({
-            from: 'chatSVG <onboarding@resend.dev>',
+            from: 'chatSVG <noreply@chatsvg.dev>',
             to: email,
             subject: 'Welcome to chatSVG',
             html: `
@@ -128,3 +133,143 @@ async function sendWelcomeEmail(email, name) {
         logger_1.logger.error({ error, email }, 'Error sending welcome email');
     }
 }
+function supportTypeTag(type) {
+    switch (type) {
+        case 'bug':
+            return '[BUG]';
+        case 'idea':
+            return '[IDEA]';
+        case 'contact':
+        default:
+            return '[MESSAGE]';
+    }
+}
+async function sendSupportMessageEmail(payload, meta) {
+    const tag = supportTypeTag(payload.type);
+    const subject = `${tag} ${payload.subject}`.trim();
+    try {
+        await resend.emails.send({
+            from: 'chatSVG <noreply@chatsvg.dev>',
+            to: env_3.SUPPORT_INBOX_EMAIL,
+            replyTo: payload.email,
+            subject,
+            text: [
+                `${tag} Support message`,
+                '',
+                `Subject: ${payload.subject}`,
+                `Type: ${payload.type}`,
+                `From email: ${payload.email || 'N/A'}`,
+                `User ID: ${payload.userId || 'N/A'}`,
+                `Context URL: ${payload.contextUrl || 'N/A'}`,
+                `User Agent: ${payload.userAgent || 'N/A'}`,
+                `IP: ${(meta === null || meta === void 0 ? void 0 : meta.ip) || 'N/A'}`,
+                `Request ID: ${(meta === null || meta === void 0 ? void 0 : meta.requestId) || 'N/A'}`,
+                '',
+                'Message:',
+                payload.message,
+            ].join('\n'),
+        });
+        logger_1.logger.info({ type: payload.type, hasEmail: !!payload.email }, 'Support message email sent');
+    }
+    catch (error) {
+        logger_1.logger.error({ error }, 'Error sending support message email');
+        throw new Error('Failed to send email');
+    }
+}
+async function sendSupportConfirmationEmail(email, type, subject) {
+    const tag = supportTypeTag(type);
+    try {
+        await resend.emails.send({
+            from: 'chatSVG <noreply@chatsvg.dev>',
+            to: email,
+            subject: `We received your message ${tag}`,
+            html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .footer { margin-top: 30px; font-size: 12px; color: #666; }
+              .subject { padding: 12px; background: #f5f5f5; border-radius: 6px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <p>Thanks — your message was received.</p>
+              <p>We’ll take a look as soon as we can.</p>
+              <div class="subject">
+                <div><strong>Type:</strong> ${tag.replace(/\[|\]/g, '')}</div>
+                <div><strong>Subject:</strong> ${subject}</div>
+              </div>
+              <div class="footer">
+                <p>chatSVG - AI-powered SVG generation</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+        });
+        logger_1.logger.info({ email, type }, 'Support confirmation email sent');
+    }
+    catch (error) {
+        logger_1.logger.error({ error, email }, 'Error sending support confirmation email');
+    }
+}
+/**
+ * Send admin magic link for passwordless authentication
+ */
+const sendAdminMagicLink = async (email, token) => {
+    try {
+        const backendUrl = process.env.NODE_ENV === 'production'
+            ? 'https://api.chatsvg.dev'
+            : 'http://localhost:3000';
+        const magicLink = `${backendUrl}/api/admin/auth?token=${token}`;
+        await resend.emails.send({
+            from: 'chatSVG <noreply@chatsvg.dev>',
+            to: email,
+            subject: 'Admin Access - chatSVG',
+            html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 20px; }
+              .container { max-width: 600px; margin: 0 auto; background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .header { color: #4f46e5; font-size: 24px; font-weight: bold; margin-bottom: 20px; }
+              .content { margin-bottom: 30px; }
+              .button { display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; }
+              .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 14px; color: #6b7280; }
+              .warning { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; margin: 20px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">Admin Access Request</div>
+              <div class="content">
+                <p>Click the button below to access the admin panel:</p>
+                <p style="text-align: center; margin: 30px 0;">
+                  <a href="${magicLink}" class="button">Access Admin Panel</a>
+                </p>
+                <div class="warning">
+                  <strong>⚠️ Security Notice:</strong> This link expires in 5 minutes and can only be used once.
+                </div>
+                <p style="font-size: 14px; color: #6b7280;">If you didn't request admin access, you can safely ignore this email.</p>
+              </div>
+              <div class="footer">
+                <p>chatSVG - AI-powered SVG generation</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
+        });
+        logger_1.logger.info({ email }, 'Admin magic link sent');
+    }
+    catch (error) {
+        logger_1.logger.error({ error, email }, 'Error sending admin magic link');
+        throw error;
+    }
+};
+exports.sendAdminMagicLink = sendAdminMagicLink;

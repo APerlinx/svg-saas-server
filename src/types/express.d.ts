@@ -5,6 +5,24 @@ export interface JwtPayload {
   userId: string
 }
 
+// Rate limit info attached by rate limiting middleware
+export interface RateLimitInfo {
+  limit: number
+  used: number
+  remaining: number
+  resetAt: Date
+  retryAfter?: number
+}
+
+// Generation quota info attached by monthly quota middleware
+export interface QuotaInfo {
+  limit: number
+  used: number
+  remaining: number
+  resetAt: Date
+  resetsInDays: number
+}
+
 declare global {
   namespace Express {
     // For OAuth - Passport returns full Prisma user
@@ -22,6 +40,12 @@ declare global {
         customRateLimit: number | null
         ipWhitelist: string[]
       }
+      // API user when using API key auth
+      apiUser?: PrismaUser
+      // Rate limit tracking (set by rateLimitMiddleware)
+      rateLimitInfo?: RateLimitInfo
+      // Generation quota tracking (set by monthlyGenerationQuota)
+      quotaInfo?: QuotaInfo
     }
   }
 }

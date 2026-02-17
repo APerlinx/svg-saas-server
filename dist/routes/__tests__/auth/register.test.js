@@ -20,6 +20,9 @@ jest.mock('../../../lib/prisma', () => ({
             findUnique: jest.fn(),
             create: jest.fn(),
         },
+        notification: {
+            create: jest.fn(),
+        },
     },
 }));
 jest.mock('bcrypt');
@@ -50,6 +53,7 @@ describe('POST /register', () => {
         jest.clearAllMocks();
         sanitizeInput_1.sanitizeInput.mockImplementation((val) => val);
         getUserIp_1.getUserIp.mockReturnValue('127.0.0.1');
+        prisma_1.default.notification.create.mockResolvedValue({ id: 'n1' });
     });
     it('should register a new user successfully', async () => {
         const mockUser = {

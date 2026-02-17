@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -70,6 +37,7 @@ jest.mock('../../../middleware/rateLimiter', () => ({
     authLimiter: jest.fn((req, res, next) => next()),
     apiLimiter: jest.fn((req, res, next) => next()),
     forgotPasswordLimiter: jest.fn((req, res, next) => next()),
+    downloadLimiter: jest.fn((req, res, next) => next()),
 }));
 const supertest_1 = __importDefault(require("supertest"));
 const express_1 = __importDefault(require("express"));
@@ -77,7 +45,7 @@ const prisma_1 = __importDefault(require("../../../lib/prisma"));
 const cache_1 = require("../../../lib/cache");
 let app;
 beforeAll(async () => {
-    const routerModule = await Promise.resolve().then(() => __importStar(require('../../svg.routes')));
+    const routerModule = await import('../../svg.routes.js');
     const router = routerModule.default;
     app = (0, express_1.default)();
     app.use(express_1.default.json());
@@ -110,43 +78,15 @@ describe('GET /public', () => {
         ];
         const cachedData = {
             publicGenerations: mockPublicGenerations,
-            totalCount: 2,
-            totalPages: 1,
-            hasMore: false,
-            page: 1,
-            limit: 10,
+            nextCursor: null,
         };
         cache_1.cache.getOrSetJson.mockResolvedValue(cachedData);
         const res = await (0, supertest_1.default)(app).get('/api/svg/public');
         expect(res.status).toBe(200);
         expect(res.body.publicGenerations).toHaveLength(2);
         expect(res.body.publicGenerations[0].prompt).toBe('A beautiful sunset');
-        expect(res.body.pagination).toEqual({
-            currentPage: 1,
-            totalPages: 1,
-            totalCount: 2,
-            limit: 10,
-            hasMore: false,
-        });
-        expect(cache_1.cache.buildKey).toHaveBeenCalledWith('public', 'page', 1, 'limit', 10);
+        expect(cache_1.cache.buildKey).toHaveBeenCalledWith('public:v4:first', 'style', 'all', 'model', 'all', 'limit', 50);
         expect(cache_1.cache.getOrSetJson).toHaveBeenCalled();
-    });
-    it('should handle pagination parameters', async () => {
-        const cachedData = {
-            publicGenerations: [],
-            totalCount: 25,
-            totalPages: 3,
-            hasMore: true,
-            page: 2,
-            limit: 10,
-        };
-        cache_1.cache.getOrSetJson.mockResolvedValue(cachedData);
-        const res = await (0, supertest_1.default)(app).get('/api/svg/public?page=2&limit=10');
-        expect(res.status).toBe(200);
-        expect(res.body.pagination.currentPage).toBe(2);
-        expect(res.body.pagination.totalPages).toBe(3);
-        expect(res.body.pagination.hasMore).toBe(true);
-        expect(cache_1.cache.buildKey).toHaveBeenCalledWith('public', 'page', 2, 'limit', 10);
     });
     it('should fetch from database when cache misses', async () => {
         const mockPublicGenerations = [
@@ -156,7 +96,7 @@ describe('GET /public', () => {
                 style: 'flat',
                 model: 'gpt-4o',
                 privacy: false,
-                creditsUsed: 5,
+                creditsUsed: 1,
                 createdAt: new Date('2025-12-26T10:00:00Z'),
             },
         ];
@@ -168,31 +108,49 @@ describe('GET /public', () => {
         const res = await (0, supertest_1.default)(app).get('/api/svg/public');
         expect(res.status).toBe(200);
         expect(res.body.publicGenerations).toHaveLength(1);
-        expect(prisma_1.default.svgGeneration.count).toHaveBeenCalledWith({
-            where: { privacy: false },
-        });
         expect(prisma_1.default.svgGeneration.findMany).toHaveBeenCalledWith({
             where: { privacy: false },
-            orderBy: { createdAt: 'desc' },
-            skip: 0,
-            take: 10,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 51,
             select: expect.any(Object),
         });
+        expect(res.body.nextCursor).toBeNull();
     });
     it('should return empty array when no public SVGs exist', async () => {
         const cachedData = {
             publicGenerations: [],
-            totalCount: 0,
-            totalPages: 0,
-            hasMore: false,
-            page: 1,
-            limit: 10,
+            nextCursor: null,
         };
         cache_1.cache.getOrSetJson.mockResolvedValue(cachedData);
         const res = await (0, supertest_1.default)(app).get('/api/svg/public');
         expect(res.status).toBe(200);
         expect(res.body.publicGenerations).toEqual([]);
-        expect(res.body.pagination.totalCount).toBe(0);
+        expect(res.body.nextCursor).toBeNull();
+    });
+    it('should treat empty cursor as first page and use cache', async () => {
+        const cachedData = {
+            publicGenerations: [],
+            nextCursor: null,
+        };
+        cache_1.cache.getOrSetJson.mockResolvedValue(cachedData);
+        const res = await (0, supertest_1.default)(app).get('/api/svg/public?cursor=');
+        expect(res.status).toBe(200);
+        expect(cache_1.cache.buildKey).toHaveBeenCalledWith('public:v4:first', 'style', 'all', 'model', 'all', 'limit', 50);
+        expect(cache_1.cache.getOrSetJson).toHaveBeenCalled();
+    });
+    it('should return 400 for invalid style', async () => {
+        const res = await (0, supertest_1.default)(app).get('/api/svg/public?style=not-a-style');
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/Invalid style/i);
+        expect(cache_1.cache.getOrSetJson).not.toHaveBeenCalled();
+        expect(prisma_1.default.svgGeneration.findMany).not.toHaveBeenCalled();
+    });
+    it('should return 400 for invalid model', async () => {
+        const res = await (0, supertest_1.default)(app).get('/api/svg/public?model=not-a-model');
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/Invalid model/i);
+        expect(cache_1.cache.getOrSetJson).not.toHaveBeenCalled();
+        expect(prisma_1.default.svgGeneration.findMany).not.toHaveBeenCalled();
     });
     it('should return 500 on database error', async () => {
         ;
@@ -204,15 +162,11 @@ describe('GET /public', () => {
     it('should use default pagination values when not provided', async () => {
         const cachedData = {
             publicGenerations: [],
-            totalCount: 0,
-            totalPages: 0,
-            hasMore: false,
-            page: 1,
-            limit: 10,
+            nextCursor: null,
         };
         cache_1.cache.getOrSetJson.mockResolvedValue(cachedData);
         const res = await (0, supertest_1.default)(app).get('/api/svg/public');
         expect(res.status).toBe(200);
-        expect(cache_1.cache.buildKey).toHaveBeenCalledWith('public', 'page', 1, 'limit', 10);
+        expect(cache_1.cache.buildKey).toHaveBeenCalledWith('public:v4:first', 'style', 'all', 'model', 'all', 'limit', 50);
     });
 });

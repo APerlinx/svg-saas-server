@@ -7,6 +7,7 @@ const passport_1 = __importDefault(require("passport"));
 const passport_google_oauth20_1 = require("passport-google-oauth20");
 const passport_github2_1 = require("passport-github2");
 const prisma_1 = __importDefault(require("../lib/prisma"));
+const planLimits_1 = require("../utils/planLimits");
 const env_1 = require("./env");
 const emailService_1 = require("../services/emailService");
 const logger_1 = require("../lib/logger");
@@ -59,6 +60,11 @@ passport_1.default.use(new passport_google_oauth20_1.Strategy({
             }
             else {
                 logger_1.logger.info({ email, provider: 'GOOGLE' }, 'Creating new user via OAuth');
+                // Initialize plan-based credits and refill schedule
+                const planLimits = (0, planLimits_1.getPlanLimits)('FREE');
+                const now = new Date();
+                const nextRefill = new Date(now);
+                nextRefill.setDate(nextRefill.getDate() + planLimits.creditRefillDays);
                 // Create new user
                 user = await prisma_1.default.user.create({
                     data: {
@@ -68,7 +74,10 @@ passport_1.default.use(new passport_google_oauth20_1.Strategy({
                         provider: 'GOOGLE',
                         providerId: googleId,
                         passwordHash: null,
-                        credits: 10,
+                        credits: planLimits.startingCredits,
+                        creditRefillAmount: planLimits.creditRefillAmount,
+                        lastCreditRefillAt: now,
+                        nextCreditRefillAt: nextRefill,
                         termsAcceptedAt: new Date(),
                     },
                 });
@@ -147,6 +156,11 @@ passport_1.default.use(new passport_github2_1.Strategy({
                 });
             }
             else {
+                // Initialize plan-based credits and refill schedule
+                const planLimits = (0, planLimits_1.getPlanLimits)('FREE');
+                const now = new Date();
+                const nextRefill = new Date(now);
+                nextRefill.setDate(nextRefill.getDate() + planLimits.creditRefillDays);
                 user = await prisma_1.default.user.create({
                     data: {
                         email,
@@ -155,7 +169,10 @@ passport_1.default.use(new passport_github2_1.Strategy({
                         provider: 'GITHUB',
                         providerId: githubId,
                         passwordHash: null,
-                        credits: 10,
+                        credits: planLimits.startingCredits,
+                        creditRefillAmount: planLimits.creditRefillAmount,
+                        lastCreditRefillAt: now,
+                        nextCreditRefillAt: nextRefill,
                         termsAcceptedAt: new Date(),
                     },
                 });

@@ -17,7 +17,7 @@ jest.mock('../../../middleware/apiKeyAuth', () => ({
     req.apiKey = {
       id: 'key-123',
       userId: 'user-123',
-      plan: 'PRO',
+      plan: 'SUPPORTER',
     }
     next()
   },
