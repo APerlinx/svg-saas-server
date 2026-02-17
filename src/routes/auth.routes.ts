@@ -2,7 +2,12 @@ import { Router, Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
-import { FRONTEND_URL, IS_PRODUCTION, JWT_SECRET } from '../config/env'
+import {
+  ENABLE_EMAIL_AUTH,
+  FRONTEND_URL,
+  IS_PRODUCTION,
+  JWT_SECRET,
+} from '../config/env'
 import { authMiddleware } from '../middleware/auth'
 import { User as PrismaUser } from '@prisma/client'
 import { getPlanLimits } from '../utils/planLimits'
@@ -47,12 +52,35 @@ import { createWelcomeNotification } from '../services/notificationService'
 
 const router = Router()
 
+const emailAuthDisabledResponse = {
+  error: 'Email/password authentication is disabled. Use OAuth sign-in.',
+  errorCode: 'EMAIL_AUTH_DISABLED',
+} as const
+
+const rejectIfEmailAuthDisabled = (res: Response): Response | null => {
+  if (ENABLE_EMAIL_AUTH) {
+    return null
+  }
+
+  return res.status(403).json(emailAuthDisabledResponse)
+}
+
+router.get('/options', (_req: Request, res: Response) => {
+  res.json({
+    emailAuthEnabled: ENABLE_EMAIL_AUTH,
+    oauthProviders: ['google', 'github'],
+  })
+})
+
 // User registration
 router.post(
   '/register',
   validateCsrfToken,
   authLimiter,
   async (req: Request, res: Response) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res)
+    if (emailAuthDisabled) return emailAuthDisabled
+
     try {
       let { email, password, name, agreedToTerms } = req.body
 
@@ -158,6 +186,9 @@ router.post(
   validateCsrfToken,
   authLimiter,
   async (req: Request, res: Response) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res)
+    if (emailAuthDisabled) return emailAuthDisabled
+
     try {
       let { email, password, rememberMe } = req.body
       email = sanitizeInput(email?.toLowerCase() || '')
@@ -407,6 +438,9 @@ router.post(
   validateCsrfToken,
   forgotPasswordLimiter,
   async (req: Request, res: Response) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res)
+    if (emailAuthDisabled) return emailAuthDisabled
+
     try {
       let { email } = req.body
       email = sanitizeInput(email?.toLowerCase() || '')
@@ -454,6 +488,9 @@ router.post(
   validateCsrfToken,
   forgotPasswordLimiter,
   async (req: Request, res: Response) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res)
+    if (emailAuthDisabled) return emailAuthDisabled
+
     try {
       const { token: resetToken, newPassword } = req.body
 
