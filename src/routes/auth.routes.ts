@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken'
 import { FRONTEND_URL, IS_PRODUCTION, JWT_SECRET } from '../config/env'
 import { authMiddleware } from '../middleware/auth'
 import { User as PrismaUser } from '@prisma/client'
-import { initializeCreditRefill } from '../services/creditRefillService'
 import { getPlanLimits } from '../utils/planLimits'
 import {
   createPasswordResetToken,
