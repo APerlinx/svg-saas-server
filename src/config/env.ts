@@ -11,6 +11,27 @@ export const IS_PRODUCTION = NODE_ENV === 'production'
 export const IS_DEVELOPMENT = NODE_ENV === 'development'
 export const IS_TEST = NODE_ENV === 'test'
 
+// Feature flags
+const parseBooleanEnv = (
+  value: string | undefined,
+  defaultValue: boolean,
+): boolean => {
+  if (value == null) return defaultValue
+
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'true') return true
+  if (normalized === 'false') return false
+
+  return defaultValue
+}
+
+// Controls email/password routes (register/login/forgot-password/reset-password).
+// Defaults to enabled for backwards compatibility.
+export const ENABLE_EMAIL_AUTH = parseBooleanEnv(
+  process.env.ENABLE_EMAIL_AUTH,
+  true,
+)
+
 // Reverse proxy / CDN configuration.
 export const TRUST_PROXY: boolean | number = (() => {
   const raw = process.env.TRUST_PROXY
