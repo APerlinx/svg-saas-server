@@ -61,7 +61,7 @@ function validateSvg(svg: string): string[] {
     // ignore xml declarations / doctype if any slip in
     if (name === '?xml' || name === '!doctype') continue
 
-    // treat namespaced tags as not allowed (shouldn’t happen)
+    // treat namespaced tags as not allowed (shouldn't happen)
     if (name.includes(':')) {
       errors.push(`Namespaced tag <${rawName}> is not allowed`)
       continue
@@ -88,6 +88,224 @@ export type AiMetrics = {
   attempts: number
 }
 
+// ─── Style-specific constraints injected into every user request ──────────────
+
+const STYLE_CONSTRAINTS: Record<string, string> = {
+  outline: [
+    '- STROKE ONLY: set fill="none" on every shape. No filled shapes.',
+    '- stroke-width between 10 and 14. stroke-linecap="round". stroke-linejoin="round".',
+    '- Outlines must read clearly at small sizes — keep bold and uncluttered.',
+  ].join('\n'),
+
+  filled: [
+    '- FILL ONLY: every shape is solid-filled. No visible stroke (omit stroke or set stroke="none").',
+    '- Silhouette-style — overlapping shapes carve out the icon form.',
+    '- No borders, no outlines around shapes.',
+  ].join('\n'),
+
+  minimal: [
+    '- MAXIMUM 5 shapes total — fewer is always better.',
+    '- Keep all geometry within 64–192 on both axes (large margins, high whitespace).',
+    '- Single color only. No secondary tones, no gradients.',
+    '- Strip the concept to its absolute essential form.',
+  ].join('\n'),
+
+  modern: [
+    '- Geometric precision: straight lines, exact circles, clean angles.',
+    '- Mix fill and stroke where it aids clarity. stroke-width 8–12 when used.',
+    '- Max 2 tones — primary color plus one optional lighter/darker shade.',
+    '- Bold and refined — no decorative flourishes, no rough edges.',
+  ].join('\n'),
+
+  flat: [
+    '- FLAT SOLID FILLS: every shape uses fill with a solid color.',
+    '- No gradients, no depth cues, no shadows, no 3D effects.',
+    '- Strict max 2 colors — primary plus one optional secondary.',
+    '- Clean silhouettes with at most slight rounding (rx up to 12).',
+  ].join('\n'),
+
+  gradient: [
+    '- SIMULATE gradient depth using layered concentric shapes at different opacities.',
+    '- NEVER use <defs>, <linearGradient>, or <radialGradient> — they are forbidden tags.',
+    '- Stack 3–4 shapes: outermost opacity="1", progressively lighter/smaller toward center.',
+    '- Use the requested color as the base; inner layers use lighter tints of that same color.',
+  ].join('\n'),
+
+  'line-art': [
+    '- THIN STROKES ONLY: stroke-width 2–6. Set fill="none" on every element.',
+    '- Use <path> with smooth d= curves for intricate, organic linework.',
+    '- stroke-linecap="round". Up to 12 paths for detail.',
+    '- Prefer flowing curves (C, S, Q beziers) over harsh straight lines.',
+  ].join('\n'),
+
+  '3d': [
+    '- ISOMETRIC PERSPECTIVE: use <polygon> for each visible face of the object.',
+    '- Three-face depth rule: top face is lightest, left face is darkest, right face is mid-tone.',
+    '- Derive all three face colors as lighter/darker shades of the requested color.',
+    '- Optional hairline edge: stroke-width="2" stroke-linejoin="round".',
+    '- Depth comes purely from face color contrast — no text or extra decoration.',
+  ].join('\n'),
+
+  cartoon: [
+    '- BOLD OUTLINES: stroke-width 14–18. stroke-linecap="round". stroke-linejoin="round".',
+    '- Every shape has BOTH fill and stroke using the requested color.',
+    '- Max 8 shapes — chunky, simple, exaggerated proportions.',
+    '- Prefer round and friendly geometry (large rx/ry, circles over sharp polygons).',
+  ].join('\n'),
+}
+
+// ─── One style-matched few-shot example per style ────────────────────────────
+
+// Examples use deliberately abstract/neutral geometry — no real-world objects
+// that could be confused with a user's actual prompt.
+const STYLE_EXAMPLES: Record<string, { user: string; assistant: string }> = {
+  outline: {
+    user: 'STYLE REFERENCE: show me the "outline" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <g fill="none" stroke="#111111" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="32" y="32" width="192" height="192" rx="20" />
+    <rect x="72" y="72" width="112" height="112" rx="12" />
+    <rect x="108" y="108" width="40" height="40" rx="6" />
+  </g>
+</svg>`,
+  },
+
+  filled: {
+    user: 'STYLE REFERENCE: show me the "filled" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <g fill="#111111">
+    <circle cx="128" cy="96" r="64" />
+    <rect x="80" y="148" width="96" height="72" rx="8" />
+  </g>
+</svg>`,
+  },
+
+  minimal: {
+    user: 'STYLE REFERENCE: show me the "minimal" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <polygon fill="#111111" points="128 72 184 128 128 184 72 128" />
+</svg>`,
+  },
+
+  modern: {
+    user: 'STYLE REFERENCE: show me the "modern" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect x="44" y="44" width="128" height="128" rx="8" fill="#111111" />
+  <rect x="84" y="84" width="128" height="128" rx="8" fill="none" stroke="#111111" stroke-width="10" />
+</svg>`,
+  },
+
+  flat: {
+    user: 'STYLE REFERENCE: show me the "flat" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect x="32" y="72" width="88" height="112" rx="10" fill="#111111" />
+  <rect x="136" y="72" width="88" height="112" rx="10" fill="#666666" />
+</svg>`,
+  },
+
+  gradient: {
+    user: 'STYLE REFERENCE: show me the "gradient" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <circle cx="128" cy="128" r="104" fill="#111111" />
+  <circle cx="128" cy="128" r="72" fill="#555555" opacity="0.6" />
+  <circle cx="128" cy="128" r="44" fill="#999999" opacity="0.45" />
+  <circle cx="128" cy="128" r="20" fill="#ffffff" opacity="0.35" />
+</svg>`,
+  },
+
+  'line-art': {
+    user: 'STYLE REFERENCE: show me the "line-art" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <g fill="none" stroke="#111111" stroke-width="4" stroke-linecap="round">
+    <path d="M64 64 C64 128 192 128 192 192" />
+    <path d="M192 64 C192 128 64 128 64 192" />
+    <circle cx="64" cy="64" r="10" />
+    <circle cx="192" cy="64" r="10" />
+    <circle cx="64" cy="192" r="10" />
+    <circle cx="192" cy="192" r="10" />
+  </g>
+</svg>`,
+  },
+
+  '3d': {
+    user: 'STYLE REFERENCE: show me the "3d" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <polygon points="128 72 212 116 128 160 44 116" fill="#888888" stroke="#111111" stroke-width="2" stroke-linejoin="round" />
+  <polygon points="44 116 44 184 128 228 128 160" fill="#333333" stroke="#111111" stroke-width="2" stroke-linejoin="round" />
+  <polygon points="212 116 212 184 128 228 128 160" fill="#666666" stroke="#111111" stroke-width="2" stroke-linejoin="round" />
+</svg>`,
+  },
+
+  cartoon: {
+    user: 'STYLE REFERENCE: show me the "cartoon" style using simple abstract shapes.',
+    assistant: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <circle cx="80" cy="168" r="52" fill="#111111" stroke="#111111" stroke-width="16" stroke-linejoin="round" />
+  <circle cx="156" cy="108" r="36" fill="#111111" stroke="#111111" stroke-width="16" stroke-linejoin="round" />
+  <circle cx="212" cy="64" r="22" fill="#111111" stroke="#111111" stroke-width="16" stroke-linejoin="round" />
+</svg>`,
+  },
+}
+
+// ─── System prompt ────────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT = `You are a precise SVG icon generator for a professional design tool. Your only output is a single valid <svg> element.
+
+OUTPUT FORMAT:
+- Respond with EXACTLY ONE <svg>...</svg> element — nothing before or after.
+- No explanations, no markdown, no backticks, no surrounding text.
+- No XML declarations, no comments, no CDATA sections.
+
+ALLOWED ELEMENTS (strictly enforced):
+  <svg>  <g>  <path>  <rect>  <circle>  <line>  <polygon>
+  Any other tag (<text>, <defs>, <style>, <script>, <image>, <linearGradient>, etc.) is FORBIDDEN.
+
+GEOMETRY RULES:
+- Root <svg> MUST have: xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"
+- Safe drawing zone: all coordinates must be between 16 and 240 (inclusive).
+- Visual center: the icon must feel balanced and centered around (128, 128).
+- Maximum 12 shapes total. Prefer fewer — clarity beats complexity.
+
+ATTRIBUTE RULES:
+- Use ONLY these attributes: fill, stroke, stroke-width, stroke-linecap, stroke-linejoin,
+  rx, ry, points, d, cx, cy, r, x, y, width, height, opacity, xmlns, viewBox.
+- Valid XML only: close every tag, use double quotes on all attributes.
+- Do NOT use <style> or inline CSS. Use SVG presentation attributes only.
+
+COLOR:
+- If the user's prompt specifies a color, use it. Honor explicit color requests above all else.
+- If no color is specified, default to #111111.
+- Use #ffffff only for intentional contrast on top of a dark shape (e.g. a white detail inside a filled icon).
+
+CONSISTENCY:
+- Produce stable output: similar prompts should yield structurally similar icons.`
+
+// ─── Message builder ──────────────────────────────────────────────────────────
+
+function buildMessages(prompt: string, style: string): ChatMessage[] {
+  const example = STYLE_EXAMPLES[style] ?? STYLE_EXAMPLES['outline']
+  const constraints = STYLE_CONSTRAINTS[style] ?? STYLE_CONSTRAINTS['outline']
+
+  return [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: example.user },
+    { role: 'assistant', content: example.assistant },
+    {
+      role: 'user',
+      content: `[STYLE REFERENCE COMPLETE — the example above demonstrated formatting and technique only. Do NOT copy or approximate its shape, subject, or structure.]
+
+Now generate a completely original SVG icon for: "${prompt}"
+
+STYLE: ${style}
+STYLE RULES:
+${constraints}
+
+Center the design at (128, 128). Keep all coordinates within 16–240. Max 12 shapes.`,
+    },
+  ]
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 export async function generateSvg(
   prompt: string,
   style: string,
@@ -111,102 +329,7 @@ export async function generateSvg(
   }
 
   const resolvedModel = model || 'gpt-5.2-2025-12-11'
-
-  const baseMessages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `You are a deterministic SVG icon generator for a professional design tool.
-
-You MUST respond with ONLY A SINGLE <svg>...</svg> ELEMENT.
-- No explanations.
-- No markdown.
-- No backticks.
-- No surrounding text.
-
-STRICT REQUIREMENTS:
-1. Always include: viewBox="0 0 256 256".
-2. Use only these elements:
-   <svg>, <g>, <path>, <rect>, <circle>, <line>, <polygon>.
-   Do NOT use <text>, <foreignObject>, <image>, <style>, <script>, or any other tag.
-3. The SVG must be valid XML. Close all tags and use double quotes for attributes.
-4. Keep the design clean and minimal, suitable as an icon or simple illustration.
-5. Use simple, consistent coordinates (0–256 range) so shapes are well-balanced.
-6. Avoid randomness between calls: similar prompts should produce similar structure.
-7. Never include comments or CDATA.
-8. Do NOT inline CSS or use <style>. Use basic attributes like fill, stroke, stroke-width, etc.`,
-    },
-
-    // --- FEW-SHOT EXAMPLE 1 ---
-    {
-      role: 'user',
-      content: `Generate a minimal SVG for: "code window with angle brackets" in "outline" style.`,
-    },
-    {
-      role: 'assistant',
-      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <g fill="none" stroke="#111111" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="32" y="40" width="192" height="176" rx="16" ry="16" />
-    <line x1="32" y1="80" x2="224" y2="80" />
-    <circle cx="64" cy="60" r="6" />
-    <circle cx="88" cy="60" r="6" />
-    <circle cx="112" cy="60" r="6" />
-    <path d="M108 128 L88 144 L108 160" />
-    <path d="M148 128 L168 144 L148 160" />
-    <line x1="124" y1="120" x2="132" y2="168" />
-  </g>
-</svg>`,
-    },
-
-    // --- FEW-SHOT EXAMPLE 2 ---
-    {
-      role: 'user',
-      content: `Generate a minimal SVG for: "lightbulb idea icon" in "flat filled" style.`,
-    },
-    {
-      role: 'assistant',
-      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <g fill="#111111">
-    <path d="M128 32c-40 0-72 29.4-72 68 0 21.6 9.2 38.5 25 52.6 7.2 6.4 11 14.9 11 24v4h72v-4c0-9.1 3.8-17.6 11-24 15.8-14.1 25-31 25-52.6 0-38.6-32-68-72-68z"/>
-    <rect x="100" y="188" width="56" height="20" rx="6" ry="6" />
-    <rect x="96" y="212" width="64" height="16" rx="6" ry="6" />
-  </g>
-  <g fill="none" stroke="#111111" stroke-width="8" stroke-linecap="round">
-    <line x1="64" y1="80" x2="40" y2="64" />
-    <line x1="192" y1="80" x2="216" y2="64" />
-    <line x1="128" y1="32" x2="128" y2="16" />
-  </g>
-</svg>`,
-    },
-
-    // --- FEW-SHOT EXAMPLE 3 ---
-    {
-      role: 'user',
-      content: `Generate a minimal SVG for: "isometric cube logo" in "geometric" style.`,
-    },
-    {
-      role: 'assistant',
-      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <g fill="none" stroke="#111111" stroke-width="10" stroke-linejoin="round">
-    <polygon points="128 32 56 72 56 152 128 192 200 152 200 72" />
-    <polygon points="128 32 56 72 128 112 200 72" />
-    <polygon points="56 72 56 152 128 192 128 112" />
-    <polygon points="200 72 200 152 128 192 128 112" />
-  </g>
-</svg>`,
-    },
-
-    // --- REAL USER REQUEST ---
-    {
-      role: 'user',
-      content: `Generate a professional, well-balanced SVG icon for:
-
-Prompt: "${prompt}"
-Style: "${style}"
-
-Focus on clear shapes, good visual hierarchy, and clean geometry.
-Use a neutral color palette (black/white/gray) unless explicit colors are requested.`,
-    },
-  ]
+  const messages = buildMessages(prompt, style)
 
   let totalPromptTokens = 0
   let totalCompletionTokens = 0
@@ -214,13 +337,14 @@ Use a neutral color palette (black/white/gray) unless explicit colors are reques
   let totalLatencyMs = 0
   let attempts = 0
 
-  const callModel = async (messages: ChatMessage[]) => {
+  const callModel = async (msgs: ChatMessage[]) => {
     const startTime = Date.now()
     attempts++
 
     const response = await openai.chat.completions.create({
       model: resolvedModel,
-      messages,
+      messages: msgs,
+      temperature: 0.2,
     })
 
     const latencyMs = Date.now() - startTime
@@ -237,7 +361,7 @@ Use a neutral color palette (black/white/gray) unless explicit colors are reques
   }
 
   // Attempt 1
-  let svg = await callModel(baseMessages)
+  let svg = await callModel(messages)
   let errors = validateSvg(svg)
 
   if (errors.length === 0) {
@@ -254,20 +378,21 @@ Use a neutral color palette (black/white/gray) unless explicit colors are reques
     }
   }
 
-  // Attempt 2: repair once
+  // Attempt 2: targeted repair — preserve intent, fix only validation errors
   const repairMessage: ChatMessage = {
     role: 'user',
-    content: `Your previous SVG did not pass validation:
+    content: `Preserve semantic intent; only minimal edits to satisfy the validator.
 
+Your previous SVG failed these validation checks:
 ${errors.map((e) => `- ${e}`).join('\n')}
 
-Return a corrected SINGLE <svg>...</svg> only, following the tag allowlist and required viewBox.
+Return a corrected SINGLE <svg>...</svg> only. Keep the same design and subject — fix ONLY the issues listed above. Do not redesign or simplify unnecessarily.
 
 Previous SVG:
 ${svg}`,
   }
 
-  svg = await callModel([...baseMessages, repairMessage])
+  svg = await callModel([...messages, repairMessage])
   errors = validateSvg(svg)
 
   if (errors.length > 0) {
