@@ -74,7 +74,7 @@ server/
 │   ├── middleware/
 │   │   ├── auth.ts               # authMiddleware, optionalAuthMiddleware
 │   │   ├── csrf.ts               # CSRF token generation & validation
-│   │   ├── rateLimiter.ts        # Rate limiting (express-rate-limit)
+│   │   ├── rateLimiter.ts        # Unified Redis/Lua rate limiting (fixed + plan-based)
 │   │   └── requestId.ts          # Request ID tracking
 │   ├── realtime/
 │   │   └── io.ts                 # Socket.IO setup for job updates
@@ -136,7 +136,7 @@ SVG generation is **asynchronous** to keep API responses fast:
 4. API responds immediately with `jobId` (202 Accepted)
 5. Worker picks up job, marks as `RUNNING`, charges credits
 6. Worker calls OpenAI API, sanitizes SVG, uploads to S3
-7. Worker creates `SvgGeneration` record, marks job as `COMPLETED`
+7. Worker creates `SvgGeneration` record, marks job as `SUCCEEDED`
 8. Socket.IO notifies frontend of completion
 
 **Key files**:
@@ -150,8 +150,8 @@ SVG generation is **asynchronous** to keep API responses fast:
 
 Users have two types of limits:
 
-- **Credits**: Monthly allowance (100 for FREE, 1000 for SUPPORTER)
-- **Generations**: Monthly generation limit (100 for FREE, 1000 for SUPPORTER)
+- **Credits**: Rolling refill model (`startingCredits`, `creditRefillAmount`, `creditRefillDays`)
+- **Generations**: Unified monthly generation quota (`generationsPerMonth`)
 
 Credits are charged **before** generation starts (in worker). If generation fails, credits are refunded.
 
@@ -162,7 +162,7 @@ Credits are charged **before** generation starts (in worker). If generation fail
 
 ### 3. API Access
 
-Users can create API keys to access the public API (`/v1/*` endpoints). All users have API access (FREE: 1 key, SUPPORTER: 5 keys).
+Users can create API keys to access the public API (`/v1/*` endpoints). Both plans currently have API access (`FREE`: 1 key, `SUPPORTER`: 5 keys).
 
 **Key files**:
 
@@ -202,6 +202,19 @@ All state-changing requests require CSRF token validation. Token is stored in `c
 
 Supports Google and GitHub OAuth via Passport.js. On OAuth success, creates/finds user, generates tokens, sets cookies, redirects to frontend.
 
+### Email Auth Feature Flag
+
+Email/password routes are runtime-gated by `ENABLE_EMAIL_AUTH` (see `src/config/env.ts`).
+
+- When `ENABLE_EMAIL_AUTH=true` (default): email auth routes work normally.
+- When `ENABLE_EMAIL_AUTH=false`: `register`, `login`, `forgot-password`, and `reset-password` return `403` with `errorCode: EMAIL_AUTH_DISABLED`.
+
+Frontend capability discovery endpoint:
+
+- `GET /api/auth/options` returns:
+  - `emailAuthEnabled: boolean`
+  - `oauthProviders: string[]` (currently `google`, `github`)
+
 **Key files**:
 
 - `src/config/passport.ts` (strategies)
@@ -213,9 +226,8 @@ Supports Google and GitHub OAuth via Passport.js. On OAuth success, creates/find
 
 ### Plan Types
 
-- `FREE`: 3 credits/month, 1000 generations, no API access
-- `PRO`: 100 credits/month, 10k generations, API access (3 keys max)
-- `ENTERPRISE`: 1000 credits/month, 100k generations, API access (20 keys max)
+- `FREE`: 100 starting credits, 50 credits every 30 days, 100 generations/month, API access (1 key max)
+- `SUPPORTER`: 1000 starting credits, 500 credits every 30 days, 1000 generations/month, API access (5 keys max)
 
 ### Plan Limits
 
@@ -223,14 +235,15 @@ Defined in `src/utils/planLimits.ts`:
 
 ```typescript
 export interface PlanLimits {
-  creditsPerMonth: number
-  overagePrice?: number
+  startingCredits: number
+  creditRefillAmount: number
+  creditRefillDays: number
   generationsPerMonth: number
   apiAccess: boolean
   maxApiKeys: number
   rateLimits: { perMinute: number; perHour: number; perDay: number }
-  supportLevel: 'community' | 'email' | 'priority' | 'dedicated'
-  supportChannel?: 'email' | 'slack'
+  supportLevel: 'community' | 'email' | 'priority'
+  supportChannel?: 'email' | 'discord'
 }
 ```
 
@@ -245,8 +258,8 @@ export interface PlanLimits {
 
 - `GET /api/plans`: List all plans with metadata (public, cacheable)
 - `GET /api/plans/limits/:plan`: Get limits for a specific plan
-- `GET /api/plans/has-feature?plan=PRO&feature=apiAccess`: Check feature availability
-- `GET /api/plans/can-create-api-key?plan=PRO&currentKeyCount=2`: Check API key creation eligibility
+- `GET /api/plans/has-feature?plan=SUPPORTER&feature=apiAccess`: Check feature availability
+- `GET /api/plans/can-create-api-key?plan=SUPPORTER&currentKeyCount=2`: Check API key creation eligibility
 - `POST /api/plans/recommendation`: Get upgrade recommendation (requires `currentPlan` and `usage` in body)
 
 **Key files**:
@@ -260,21 +273,22 @@ export interface PlanLimits {
 
 ### Authentication (`/api/auth`)
 
-| Method | Endpoint           | Auth | Description                   |
-| ------ | ------------------ | ---- | ----------------------------- |
-| POST   | `/register`        | No   | Register new user             |
-| POST   | `/login`           | No   | Login (email/password)        |
-| POST   | `/logout`          | Yes  | Logout (revoke refresh token) |
-| POST   | `/refresh`         | No   | Refresh access token          |
-| GET    | `/current-user`    | Yes  | Get current user data         |
-| POST   | `/forgot-password` | No   | Request password reset        |
-| POST   | `/reset-password`  | No   | Reset password with token     |
-| GET    | `/google`          | No   | Start Google OAuth            |
-| GET    | `/google/callback` | No   | Google OAuth callback         |
-| GET    | `/github`          | No   | Start GitHub OAuth            |
-| GET    | `/github/callback` | No   | GitHub OAuth callback         |
-| GET    | `/sessions`        | Yes  | List active sessions          |
-| DELETE | `/sessions/:id`    | Yes  | Revoke specific session       |
+| Method | Endpoint           | Auth | Description                    |
+| ------ | ------------------ | ---- | ------------------------------ |
+| GET    | `/options`         | No   | Auth capabilities for frontend |
+| POST   | `/register`        | No   | Register new user              |
+| POST   | `/login`           | No   | Login (email/password)         |
+| POST   | `/logout`          | Yes  | Logout (revoke refresh token)  |
+| POST   | `/refresh`         | No   | Refresh access token           |
+| GET    | `/current-user`    | Yes  | Get current user data          |
+| POST   | `/forgot-password` | No   | Request password reset         |
+| POST   | `/reset-password`  | No   | Reset password with token      |
+| GET    | `/google`          | No   | Start Google OAuth             |
+| GET    | `/google/callback` | No   | Google OAuth callback          |
+| GET    | `/github`          | No   | Start GitHub OAuth             |
+| GET    | `/github/callback` | No   | GitHub OAuth callback          |
+| GET    | `/sessions`        | Yes  | List active sessions           |
+| DELETE | `/sessions/:id`    | Yes  | Revoke specific session        |
 
 ### User (`/api/user`)
 
@@ -312,9 +326,10 @@ export interface PlanLimits {
 
 ### Public API (`/v1`)
 
-| Method | Endpoint    | Auth    | Description               |
-| ------ | ----------- | ------- | ------------------------- |
-| POST   | `/generate` | API Key | Generate SVG (public API) |
+| Method | Endpoint        | Auth    | Description                        |
+| ------ | --------------- | ------- | ---------------------------------- |
+| POST   | `/svg/generate` | API Key | Create SVG generation job          |
+| GET    | `/svg/job/:id`  | API Key | Get SVG generation job status/data |
 
 ### Notifications (`/api/notification`)
 
@@ -349,7 +364,7 @@ export interface PlanLimits {
 - `passwordHash`: bcrypt (nullable for OAuth users)
 - `name`: display name
 - `provider`: EMAIL | GOOGLE | GITHUB
-- `plan`: FREE | PRO | ENTERPRISE
+- `plan`: FREE | SUPPORTER
 - `credits`: monthly allowance
 - `avatar`: URL
 - `generationsQuotaLimit/Used/ResetAt`: unified generation quota
@@ -373,7 +388,7 @@ export interface PlanLimits {
 - `id`: cuid
 - `userId`: FK to User
 - `prompt`, `style`, `model`, `privacy`: generation params
-- `status`: QUEUED | RUNNING | COMPLETED | FAILED
+- `status`: QUEUED | RUNNING | SUCCEEDED | FAILED
 - `createdAt`, `startedAt`, `finishedAt`: timestamps
 - `errorCode`, `errorMessage`: failure info
 - `creditsCharged`, `creditsRefunded`: billing flags
@@ -408,7 +423,7 @@ export interface PlanLimits {
 
 - `id`: cuid
 - `userId`: FK to User
-- `type`: WELCOME | GENERATION_COMPLETE | etc.
+- `type`: JOB_SUCCEEDED | JOB_FAILED | LOW_CREDITS | PROMO_MONTHLY | CREDITS_PURCHASED | CREDITS_REFUNDED | ACCOUNT_SECURITY | SYSTEM_ANNOUNCEMENT
 - `message`: notification text
 - `isRead`: boolean
 - `createdAt`: timestamp
@@ -424,9 +439,10 @@ export interface PlanLimits {
 #### `aiService.ts`
 
 - `generateSvg(prompt, style, model)`: Calls OpenAI to generate SVG
-- Constructs system/user prompts based on style
-- Parses and validates SVG from response
-- Handles retries and errors
+- Uses strict system prompt + style-specific constraints
+- Uses one style-matched few-shot example per request
+- Validates SVG tags and structure against allow-list rules
+- Performs one targeted repair pass if first output fails validation
 
 #### `emailService.ts`
 
@@ -520,14 +536,14 @@ SVG generation uses **BullMQ** (Redis-backed queue) for async processing.
 1. **API enqueues job**: `enqueueSvgGenerationJob(jobId, jobData)`
 2. **Worker picks up job**: `svgGenerationWorker.ts` listens to queue
 3. **Worker processes**: Calls `processSvgGenerationJob(jobId)` from `svgGenerationService.ts`
-4. **Worker updates DB**: Marks job as COMPLETED/FAILED
+4. **Worker updates DB**: Marks job as SUCCEEDED/FAILED
 5. **Worker emits event**: Socket.IO notifies frontend
 
 ### Job States
 
 - `QUEUED`: Job created, waiting for worker
 - `RUNNING`: Worker processing
-- `COMPLETED`: Success
+- `SUCCEEDED`: Success
 - `FAILED`: Permanent failure (refund credits)
 
 ### Idempotency
@@ -714,6 +730,9 @@ Key variables in `.env`:
 - `FRONTEND_URL`: Frontend URL (CORS)
 - `GOOGLE_CLIENT_ID/SECRET`: OAuth credentials
 - `GITHUB_CLIENT_ID/SECRET`: OAuth credentials
+- `ENABLE_EMAIL_AUTH`: feature flag for email/password routes
+- `TRUST_PROXY`: proxy hop/boolean setting for correct IP resolution
+- `PUBLIC_ASSETS_BASE_URL`: public URL prefix for generated SVG assets
 
 ### Git Workflow
 
@@ -796,7 +815,7 @@ const userId = getUserId(req) // undefined if not auth
 import { hasFeature, getPlanLimits } from '../utils/planLimits'
 
 if (!hasFeature(user.plan, 'apiAccess')) {
-  return res.status(403).json({ error: 'API access requires PRO plan' })
+  return res.status(403).json({ error: 'API access requires SUPPORTER plan' })
 }
 ```
 
@@ -835,6 +854,6 @@ if (error) return res.status(400).json({ error })
 
 ---
 
-**Last Updated**: 2026-02-15
+**Last Updated**: 2026-02-17
 
 For questions or clarifications, refer to the docs folder or check the code directly. Happy coding! 🚀
