@@ -22,7 +22,7 @@ async function cleanupExpiredTokens() {
             },
         });
         logger_1.logger.info({ count: resetTokenResult.count }, 'Cleaned up expired reset tokens');
-        // Clean up expired refresh tokens (THIS IS NEW)
+        // Clean up expired refresh tokens
         const refreshTokenResult = await prisma_1.default.refreshToken.deleteMany({
             where: {
                 expiresAt: {

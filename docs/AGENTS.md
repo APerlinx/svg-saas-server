@@ -150,8 +150,8 @@ SVG generation is **asynchronous** to keep API responses fast:
 
 Users have two types of limits:
 
-- **Credits**: Monthly allowance (3 for FREE, 100 for PRO, 1000 for ENTERPRISE)
-- **Generations**: Monthly generation limit (1000/10k/100k)
+- **Credits**: Monthly allowance (100 for FREE, 1000 for SUPPORTER)
+- **Generations**: Monthly generation limit (100 for FREE, 1000 for SUPPORTER)
 
 Credits are charged **before** generation starts (in worker). If generation fails, credits are refunded.
 
@@ -162,7 +162,7 @@ Credits are charged **before** generation starts (in worker). If generation fail
 
 ### 3. API Access
 
-Users can create API keys to access the public API (`/v1/*` endpoints). API access requires PRO or ENTERPRISE plan.
+Users can create API keys to access the public API (`/v1/*` endpoints). All users have API access (FREE: 1 key, SUPPORTER: 5 keys).
 
 **Key files**:
 

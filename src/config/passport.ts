@@ -2,6 +2,7 @@ import passport from 'passport'
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20'
 import { Strategy as GitHubStrategy } from 'passport-github2'
 import prisma from '../lib/prisma'
+import { getPlanLimits } from '../utils/planLimits'
 import {
   GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET,
@@ -50,7 +51,7 @@ passport.use(
         if (!user) {
           logger.debug(
             { email },
-            'User not found by providerId, checking by email'
+            'User not found by providerId, checking by email',
           )
 
           // Check if user exists by email
@@ -61,7 +62,7 @@ passport.use(
           if (existingUser) {
             logger.info(
               { email, provider: 'GOOGLE' },
-              'Linking Google account to existing user'
+              'Linking Google account to existing user',
             )
             // Link Google account to existing email account
             user = await prisma.user.update({
@@ -76,8 +77,17 @@ passport.use(
           } else {
             logger.info(
               { email, provider: 'GOOGLE' },
-              'Creating new user via OAuth'
+              'Creating new user via OAuth',
             )
+
+            // Initialize plan-based credits and refill schedule
+            const planLimits = getPlanLimits('FREE')
+            const now = new Date()
+            const nextRefill = new Date(now)
+            nextRefill.setDate(
+              nextRefill.getDate() + planLimits.creditRefillDays,
+            )
+
             // Create new user
             user = await prisma.user.create({
               data: {
@@ -87,7 +97,10 @@ passport.use(
                 provider: 'GOOGLE',
                 providerId: googleId,
                 passwordHash: null,
-                credits: 3,
+                credits: planLimits.startingCredits,
+                creditRefillAmount: planLimits.creditRefillAmount,
+                lastCreditRefillAt: now,
+                nextCreditRefillAt: nextRefill,
                 termsAcceptedAt: new Date(),
               },
             })
@@ -99,7 +112,7 @@ passport.use(
             } catch (emailError) {
               logger.error(
                 { error: emailError, email },
-                'Failed to send welcome email'
+                'Failed to send welcome email',
               )
             }
           }
@@ -122,8 +135,8 @@ passport.use(
         logger.error({ error }, 'Passport Google OAuth strategy error')
         return done(error as Error, false)
       }
-    }
-  )
+    },
+  ),
 )
 
 passport.use(
@@ -138,7 +151,7 @@ passport.use(
       accessToken: string,
       refreshToken: string,
       profile: any,
-      done: any
+      done: any,
     ) => {
       try {
         const githubId = profile.id
@@ -172,13 +185,13 @@ passport.use(
             if (!emailVerified) {
               logger.error(
                 { githubId, email },
-                'Cannot link: GitHub email not verified'
+                'Cannot link: GitHub email not verified',
               )
               return done(
                 new Error(
-                  'Please verify your email on GitHub to link accounts'
+                  'Please verify your email on GitHub to link accounts',
                 ),
-                false
+                false,
               )
             }
 
@@ -192,6 +205,14 @@ passport.use(
               },
             })
           } else {
+            // Initialize plan-based credits and refill schedule
+            const planLimits = getPlanLimits('FREE')
+            const now = new Date()
+            const nextRefill = new Date(now)
+            nextRefill.setDate(
+              nextRefill.getDate() + planLimits.creditRefillDays,
+            )
+
             user = await prisma.user.create({
               data: {
                 email,
@@ -200,7 +221,10 @@ passport.use(
                 provider: 'GITHUB',
                 providerId: githubId,
                 passwordHash: null,
-                credits: 3,
+                credits: planLimits.startingCredits,
+                creditRefillAmount: planLimits.creditRefillAmount,
+                lastCreditRefillAt: now,
+                nextCreditRefillAt: nextRefill,
                 termsAcceptedAt: new Date(),
               },
             })
@@ -210,7 +234,7 @@ passport.use(
             } catch (emailError) {
               logger.error(
                 { error: emailError, email },
-                'Failed to send welcome email to GitHub user'
+                'Failed to send welcome email to GitHub user',
               )
             }
           }
@@ -228,8 +252,8 @@ passport.use(
         logger.error({ error }, 'GitHub OAuth error')
         return done(error as Error, false)
       }
-    }
-  )
+    },
+  ),
 )
 
 export default passport

@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken'
 import { FRONTEND_URL, IS_PRODUCTION, JWT_SECRET } from '../config/env'
 import { authMiddleware } from '../middleware/auth'
 import { User as PrismaUser } from '@prisma/client'
+import { initializeCreditRefill } from '../services/creditRefillService'
+import { getPlanLimits } from '../utils/planLimits'
 import {
   createPasswordResetToken,
   hashResetToken,
@@ -92,12 +94,22 @@ router.post(
 
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10)
+
+      // Initialize plan-based credits and refill schedule
+      const planLimits = getPlanLimits('FREE')
+      const now = new Date()
+      const nextRefill = new Date(now)
+      nextRefill.setDate(nextRefill.getDate() + planLimits.creditRefillDays)
+
       const user = await prisma.user.create({
         data: {
           email,
           passwordHash: hashedPassword,
           name,
-          credits: 10,
+          credits: planLimits.startingCredits,
+          creditRefillAmount: planLimits.creditRefillAmount,
+          lastCreditRefillAt: now,
+          nextCreditRefillAt: nextRefill,
           termsAcceptedAt: new Date(),
           termsAcceptedIp: getUserIp(req),
         },
@@ -118,8 +130,7 @@ router.post(
         req.headers['user-agent'] as string | undefined,
       )
 
-      // Send welcome email
-      // TODO: Move welcome email sending to a background job (BullMQ) to keep OAuth flow non-blocking
+      // Send welcome email (best-effort)
       await sendWelcomeEmail(email, name)
 
       // Set both cookies

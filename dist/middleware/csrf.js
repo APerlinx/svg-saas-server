@@ -25,6 +25,8 @@ const generateCsrfToken = (req, res, next) => {
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         path: '/', // Available on all routes
     });
+    req.cookies['csrf-token'] = csrfToken;
+    req.csrfToken = csrfToken;
     next();
 };
 exports.generateCsrfToken = generateCsrfToken;

@@ -183,7 +183,7 @@ app.get('/api/ready', async (req, res) => {
 
 app.use('/api', apiLimiter)
 
-app.get('/api/csrf', (req, res) => {
+app.get('/api/csrf', cors(webAppCorsOptions), (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   res.json({ csrfToken: req.cookies['csrf-token'] ?? (req as any).csrfToken })
 })

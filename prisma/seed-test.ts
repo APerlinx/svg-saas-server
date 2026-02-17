@@ -8,7 +8,7 @@ async function main() {
   const password = 'Password123!'
   const name = 'TEST_USER'
   const credits = 50
-  const plan = 'PRO'
+  const plan = 'SUPPORTER'
 
   const hash = await bcrypt.hash(password, 10)
 

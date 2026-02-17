@@ -15,10 +15,15 @@ model User {
   provider     AuthProvider @default(EMAIL)
   providerId   String?
   plan         Plan         @default(FREE)
-  credits      Int          @default(3)
+  credits      Int          @default(100) // Updated for new FREE plan (100 starting credits)
   avatar       String?
 
   notificationsLastSeenAt DateTime?
+
+  // Credit Refill System (NEW - for 30-day rolling credit refills)
+  creditRefillAmount Int?      // Amount of credits to refill (based on plan)
+  lastCreditRefillAt DateTime? // Last time credits were refilled
+  nextCreditRefillAt DateTime? // Next scheduled refill date
 
   // API Access (Legacy - kept for backward compatibility during migration)
   apiQuotaLimit   Int?      // Monthly API call limit (based on plan)
@@ -257,8 +262,7 @@ model ApiKeyUsageLog {
 
 enum Plan {
   FREE
-  PRO
-  ENTERPRISE
+  SUPPORTER
 }
 
 enum AuthProvider {

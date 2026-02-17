@@ -9,6 +9,7 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const env_1 = require("../config/env");
 const auth_1 = require("../middleware/auth");
+const planLimits_1 = require("../utils/planLimits");
 const createPasswordResetToken_1 = require("../utils/createPasswordResetToken");
 const emailService_1 = require("../services/emailService");
 const rateLimiter_1 = require("../middleware/rateLimiter");
@@ -22,6 +23,8 @@ const tokenExpiry_1 = require("../constants/tokenExpiry");
 const logger_1 = require("../lib/logger");
 const setAuthCookie_1 = require("../utils/setAuthCookie");
 const refreshToken_1 = require("../utils/refreshToken");
+const io_1 = require("../realtime/io");
+const notificationService_1 = require("../services/notificationService");
 const router = (0, express_1.Router)();
 // User registration
 router.post('/register', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, async (req, res) => {
@@ -58,24 +61,32 @@ router.post('/register', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, as
         }
         // Hash password
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
+        // Initialize plan-based credits and refill schedule
+        const planLimits = (0, planLimits_1.getPlanLimits)('FREE');
+        const now = new Date();
+        const nextRefill = new Date(now);
+        nextRefill.setDate(nextRefill.getDate() + planLimits.creditRefillDays);
         const user = await prisma_1.default.user.create({
             data: {
                 email,
                 passwordHash: hashedPassword,
                 name,
-                credits: 10,
+                credits: planLimits.startingCredits,
+                creditRefillAmount: planLimits.creditRefillAmount,
+                lastCreditRefillAt: now,
+                nextCreditRefillAt: nextRefill,
                 termsAcceptedAt: new Date(),
                 termsAcceptedIp: (0, getUserIp_1.getUserIp)(req),
             },
         });
+        await (0, notificationService_1.createWelcomeNotification)({ userId: user.id, name: user.name });
         // Generate access token (short-lived)
         const accessToken = jsonwebtoken_1.default.sign({ userId: user.id }, env_1.JWT_SECRET, {
             expiresIn: tokenExpiry_1.ACCESS_TOKEN_EXPIRY,
         });
         // Generate refresh token (long-lived, stored in DB)
         const { plainToken } = await (0, refreshToken_1.createRefreshToken)(user.id, tokenExpiry_1.REFRESH_TOKEN_EXPIRY_DAYS, (0, getUserIp_1.getUserIp)(req), req.headers['user-agent']);
-        // Send welcome email
-        // TODO: Move welcome email sending to a background job (BullMQ) to keep OAuth flow non-blocking
+        // Send welcome email (best-effort)
         await (0, emailService_1.sendWelcomeEmail)(email, name);
         // Set both cookies
         (0, setAuthCookie_1.setAccessTokenCookie)(res, accessToken);
@@ -122,10 +133,23 @@ router.post('/login', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, async
             },
         });
         if (!user) {
+            logger_1.logger.warn({
+                email,
+                ip: (0, getUserIp_1.getUserIp)(req),
+                userAgent: req.get('user-agent'),
+                requestId: req.requestId,
+            }, 'Login failed: user not found');
             return res.status(401).json({ error: 'Invalid credentials' });
         }
         const isMatch = await bcrypt_1.default.compare(password, user.passwordHash);
         if (!isMatch) {
+            logger_1.logger.warn({
+                userId: user.id,
+                email,
+                ip: (0, getUserIp_1.getUserIp)(req),
+                userAgent: req.get('user-agent'),
+                requestId: req.requestId,
+            }, 'Login failed: incorrect password');
             return res.status(401).json({ error: 'Invalid credentials' });
         }
         // Generate access token
@@ -148,7 +172,13 @@ router.post('/login', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, async
 });
 // User logout
 router.post('/logout', csrf_1.validateCsrfToken, auth_1.authMiddleware, async (req, res) => {
+    var _a;
     try {
+        // Disconnect all sockets for this user
+        const userId = (0, getUserId_1.getUserId)(req);
+        if (userId) {
+            (_a = (0, io_1.tryGetIO)()) === null || _a === void 0 ? void 0 : _a.to(`user:${userId}`).disconnectSockets(true);
+        }
         const refreshToken = req.cookies.refreshToken;
         // Revoke refresh token from database
         if (refreshToken) {
@@ -248,6 +278,7 @@ router.get('/current-user', auth_1.authMiddleware, async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
+        plan: user.plan,
         credits: user.credits || 0,
     };
     res.json(safeUser);
@@ -308,6 +339,11 @@ router.post('/reset-password', csrf_1.validateCsrfToken, rateLimiter_1.forgotPas
             },
         });
         if (!user) {
+            logger_1.logger.warn({
+                ip: (0, getUserIp_1.getUserIp)(req),
+                userAgent: req.get('user-agent'),
+                requestId: req.requestId,
+            }, 'Password reset failed: invalid or expired token');
             return res.status(400).json({ error: 'Invalid or expired reset token' });
         }
         const hashedPassword = await bcrypt_1.default.hash(newPassword, 10);
