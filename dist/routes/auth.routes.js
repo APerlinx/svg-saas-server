@@ -26,8 +26,27 @@ const refreshToken_1 = require("../utils/refreshToken");
 const io_1 = require("../realtime/io");
 const notificationService_1 = require("../services/notificationService");
 const router = (0, express_1.Router)();
+const emailAuthDisabledResponse = {
+    error: 'Email/password authentication is disabled. Use OAuth sign-in.',
+    errorCode: 'EMAIL_AUTH_DISABLED',
+};
+const rejectIfEmailAuthDisabled = (res) => {
+    if (env_1.ENABLE_EMAIL_AUTH) {
+        return null;
+    }
+    return res.status(403).json(emailAuthDisabledResponse);
+};
+router.get('/options', (_req, res) => {
+    res.json({
+        emailAuthEnabled: env_1.ENABLE_EMAIL_AUTH,
+        oauthProviders: ['google', 'github'],
+    });
+});
 // User registration
 router.post('/register', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, async (req, res) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res);
+    if (emailAuthDisabled)
+        return emailAuthDisabled;
     try {
         let { email, password, name, agreedToTerms } = req.body;
         email = (0, sanitizeInput_1.sanitizeInput)((email === null || email === void 0 ? void 0 : email.toLowerCase()) || '');
@@ -108,6 +127,9 @@ router.post('/register', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, as
 });
 // User login
 router.post('/login', csrf_1.validateCsrfToken, rateLimiter_1.authLimiter, async (req, res) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res);
+    if (emailAuthDisabled)
+        return emailAuthDisabled;
     try {
         let { email, password, rememberMe } = req.body;
         email = (0, sanitizeInput_1.sanitizeInput)((email === null || email === void 0 ? void 0 : email.toLowerCase()) || '');
@@ -285,6 +307,9 @@ router.get('/current-user', auth_1.authMiddleware, async (req, res) => {
 });
 // Forgot password
 router.post('/forgot-password', csrf_1.validateCsrfToken, rateLimiter_1.forgotPasswordLimiter, async (req, res) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res);
+    if (emailAuthDisabled)
+        return emailAuthDisabled;
     try {
         let { email } = req.body;
         email = (0, sanitizeInput_1.sanitizeInput)((email === null || email === void 0 ? void 0 : email.toLowerCase()) || '');
@@ -321,6 +346,9 @@ router.post('/forgot-password', csrf_1.validateCsrfToken, rateLimiter_1.forgotPa
 });
 // Reset password
 router.post('/reset-password', csrf_1.validateCsrfToken, rateLimiter_1.forgotPasswordLimiter, async (req, res) => {
+    const emailAuthDisabled = rejectIfEmailAuthDisabled(res);
+    if (emailAuthDisabled)
+        return emailAuthDisabled;
     try {
         const { token: resetToken, newPassword } = req.body;
         if (!resetToken || !newPassword) {

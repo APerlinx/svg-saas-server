@@ -51,6 +51,14 @@ model User {
   termsAcceptedAt DateTime?
   termsAcceptedIp String?
 
+  // PayPal billing
+  paypalCustomerId         String? @unique
+  paypalSubscriptionId     String? @unique
+  paypalPlanId             String?
+  paypalSubscriptionStatus String?
+
+  paypalWebhookEvents PayPalWebhookEvent[]
+
   @@unique([provider, providerId])
   @@index([email])
   @@index([plan])
@@ -258,6 +266,27 @@ model ApiKeyUsageLog {
   @@index([userId, timestamp])
   @@index([timestamp])
   @@index([statusCode])
+}
+
+model PayPalWebhookEvent {
+  id String @id @default(cuid())
+
+  paypalEventId String @unique
+  eventType     String
+  resourceId    String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  rawPayload Json
+
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  processingError String?
+
+  @@index([eventType, receivedAt])
+  @@index([resourceId])
+  @@index([userId, receivedAt])
 }
 
 enum Plan {

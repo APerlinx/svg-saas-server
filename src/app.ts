@@ -12,6 +12,7 @@ import adminRoutes from './routes/admin.routes'
 import apiKeysRoutes from './routes/apiKeys.routes'
 import v1Routes from './routes/v1.routes'
 import plansRoutes from './routes/plans.routes'
+import paypalRoutes, { paypalWebhookHandler } from './routes/paypal.routes'
 
 import passport from './config/passport'
 import {
@@ -121,6 +122,13 @@ app.use(
   }),
 )
 
+// PayPal webhook must receive raw body for signature verification.
+app.post(
+  '/api/paypal/webhook',
+  express.raw({ type: 'application/json' }),
+  paypalWebhookHandler,
+)
+
 app.use(express.json())
 app.use(cookieParser())
 app.use(requestIdMiddleware)
@@ -191,6 +199,7 @@ app.get('/api/csrf', cors(webAppCorsOptions), (req, res) => {
 // Web app routes - restrictive CORS
 app.use('/api/auth', cors(webAppCorsOptions), authRoutes)
 app.use('/api/plans', cors(webAppCorsOptions), plansRoutes)
+app.use('/api/paypal', cors(webAppCorsOptions), validateCsrfToken, paypalRoutes)
 app.use('/api/user', cors(webAppCorsOptions), validateCsrfToken, userRoutes)
 app.use('/api/svg', cors(webAppCorsOptions), validateCsrfToken, svgRoutes)
 app.use(
