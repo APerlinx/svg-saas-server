@@ -8,19 +8,19 @@ describe('Plan Limits - New Business Model', () => {
   describe('FREE Plan', () => {
     it('should have correct starting credits', () => {
       const limits = getPlanLimits('FREE')
-      expect(limits.startingCredits).toBe(100)
+      expect(limits.startingCredits).toBe(30)
     })
 
     it('should have correct monthly refill amount', () => {
       const limits = getPlanLimits('FREE')
-      expect(limits.creditRefillAmount).toBe(50)
+      expect(limits.creditRefillAmount).toBe(0)
     })
 
     it('should have correct rate limits', () => {
       const limits = getPlanLimits('FREE')
       expect(limits.rateLimits.perHour).toBe(20)
       expect(limits.rateLimits.perMinute).toBe(5)
-      expect(limits.rateLimits.perDay).toBe(100)
+      expect(limits.rateLimits.perDay).toBe(30)
     })
 
     it('should enable API access', () => {
@@ -41,19 +41,19 @@ describe('Plan Limits - New Business Model', () => {
   describe('SUPPORTER Plan', () => {
     it('should have correct starting credits', () => {
       const limits = getPlanLimits('SUPPORTER')
-      expect(limits.startingCredits).toBe(1000)
+      expect(limits.startingCredits).toBe(300)
     })
 
     it('should have correct monthly refill amount', () => {
       const limits = getPlanLimits('SUPPORTER')
-      expect(limits.creditRefillAmount).toBe(500)
+      expect(limits.creditRefillAmount).toBe(300)
     })
 
     it('should have correct rate limits', () => {
       const limits = getPlanLimits('SUPPORTER')
       expect(limits.rateLimits.perHour).toBe(60)
       expect(limits.rateLimits.perMinute).toBe(15)
-      expect(limits.rateLimits.perDay).toBe(500)
+      expect(limits.rateLimits.perDay).toBe(300)
     })
 
     it('should enable API access', () => {
