@@ -32,6 +32,41 @@ export const ENABLE_EMAIL_AUTH = parseBooleanEnv(
   true,
 )
 
+// PayPal billing feature flag + credentials
+export const PAYPAL_ENABLED = parseBooleanEnv(process.env.PAYPAL_ENABLED, false)
+export const PAYPAL_ENV =
+  (process.env.PAYPAL_ENV || 'sandbox').trim().toLowerCase() === 'live'
+    ? 'live'
+    : 'sandbox'
+export const PAYPAL_BASE_URL =
+  PAYPAL_ENV === 'live'
+    ? 'https://api-m.paypal.com'
+    : 'https://api-m.sandbox.paypal.com'
+export const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID
+export const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET
+export const PAYPAL_WEBHOOK_ID = process.env.PAYPAL_WEBHOOK_ID
+export const PAYPAL_SUPPORTER_PLAN_ID = process.env.PAYPAL_SUPPORTER_PLAN_ID
+
+if (PAYPAL_ENABLED) {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    throw new Error(
+      'PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET must be defined when PAYPAL_ENABLED=true',
+    )
+  }
+
+  if (!PAYPAL_SUPPORTER_PLAN_ID) {
+    throw new Error(
+      'PAYPAL_SUPPORTER_PLAN_ID must be defined when PAYPAL_ENABLED=true',
+    )
+  }
+
+  if (!PAYPAL_WEBHOOK_ID) {
+    throw new Error(
+      'PAYPAL_WEBHOOK_ID must be defined when PAYPAL_ENABLED=true',
+    )
+  }
+}
+
 // Reverse proxy / CDN configuration.
 export const TRUST_PROXY: boolean | number = (() => {
   const raw = process.env.TRUST_PROXY
