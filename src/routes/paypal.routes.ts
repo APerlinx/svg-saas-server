@@ -324,7 +324,7 @@ export const paypalWebhookHandler = async (req: Request, res: Response) => {
     const userId = await getUserIdForWebhookEvent(event)
 
     try {
-      await (prisma as any).paypalWebhookEvent.create({
+      await (prisma as any).payPalWebhookEvent.create({
         data: {
           paypalEventId: event.id,
           eventType: event.event_type,
@@ -404,7 +404,7 @@ export const paypalWebhookHandler = async (req: Request, res: Response) => {
         break
     }
 
-    await (prisma as any).paypalWebhookEvent.updateMany({
+    await (prisma as any).payPalWebhookEvent.updateMany({
       where: { paypalEventId: event.id },
       data: { processedAt: new Date(), processingError: null },
     })
@@ -414,7 +414,7 @@ export const paypalWebhookHandler = async (req: Request, res: Response) => {
     logger.error({ error, eventId: event.id }, 'PayPal webhook handler error')
 
     try {
-      await (prisma as any).paypalWebhookEvent.updateMany({
+      await (prisma as any).payPalWebhookEvent.updateMany({
         where: { paypalEventId: event.id },
         data: {
           processedAt: new Date(),
