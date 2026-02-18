@@ -35,12 +35,12 @@ export interface PlanLimits {
 export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
   FREE: {
     // Credits
-    startingCredits: 100,
-    creditRefillAmount: 50,
+    startingCredits: 30,
+    creditRefillAmount: 0,
     creditRefillDays: 30,
 
     // Unified generations
-    generationsPerMonth: 100,
+    generationsPerMonth: 30,
 
     // API Access
     apiAccess: true,
@@ -50,7 +50,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
     rateLimits: {
       perMinute: 5,
       perHour: 20,
-      perDay: 100,
+      perDay: 30,
     },
 
     // Support
@@ -59,12 +59,12 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
 
   SUPPORTER: {
     // Credits
-    startingCredits: 1000,
-    creditRefillAmount: 500,
+    startingCredits: 300,
+    creditRefillAmount: 300,
     creditRefillDays: 30,
 
     // Unified generations
-    generationsPerMonth: 1000,
+    generationsPerMonth: 300,
 
     // API Access
     apiAccess: true,
@@ -74,7 +74,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
     rateLimits: {
       perMinute: 15,
       perHour: 60,
-      perDay: 500,
+      perDay: 300,
     },
 
     // Support
