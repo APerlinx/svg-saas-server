@@ -386,11 +386,6 @@ export const paypalWebhookHandler = async (req: Request, res: Response) => {
       case 'PAYMENT.SALE.COMPLETED': {
         const refilled = await applyRecurringSupporterCredits(userId)
 
-        await prismaAny.user.update({
-          where: { id: userId },
-          data: { plan: Plan.SUPPORTER },
-        })
-
         if (!refilled) {
           logger.info(
             { userId, eventId: event.id, eventType: event.event_type },
