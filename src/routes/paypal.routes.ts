@@ -64,15 +64,28 @@ async function upgradeUserToSupporter(userId: string) {
   })
 }
 
-async function applyRecurringSupporterCredits(userId: string) {
+async function applyRecurringSupporterCredits(
+  userId: string,
+): Promise<boolean> {
+  const now = new Date()
   const limits = getPlanLimits('SUPPORTER')
+  const nextRefill = new Date(now)
+  nextRefill.setDate(nextRefill.getDate() + limits.creditRefillDays)
 
-  await prisma.user.update({
-    where: { id: userId },
+  const updated = await prisma.user.updateMany({
+    where: {
+      id: userId,
+      nextCreditRefillAt: { lte: now },
+    },
     data: {
       credits: { increment: limits.creditRefillAmount },
+      lastCreditRefillAt: now,
+      nextCreditRefillAt: nextRefill,
+      creditRefillAmount: limits.creditRefillAmount,
     },
   })
+
+  return updated.count > 0
 }
 
 async function downgradeUserToFree(userId: string) {
@@ -90,16 +103,17 @@ async function downgradeUserToFree(userId: string) {
 }
 
 function extractResourceId(event: PayPalWebhookEvent): string | null {
-  const candidate =
-    event.resource?.id ||
-    event.resource?.billing_agreement_id ||
-    event.resource?.supplementary_data?.related_ids?.subscription_id
+  const explicit = [
+    event.resource?.billing_agreement_id,
+    event.resource?.supplementary_data?.related_ids?.subscription_id,
+  ].find((v) => typeof v === 'string' && v.trim().length > 0)
 
-  if (typeof candidate !== 'string' || !candidate.trim()) {
-    return null
-  }
+  if (explicit) return explicit as string
 
-  return candidate
+  const id = event.resource?.id
+  if (typeof id === 'string' && id.startsWith('I-')) return id
+
+  return null
 }
 
 async function getUserIdForWebhookEvent(
@@ -369,16 +383,20 @@ export const paypalWebhookHandler = async (req: Request, res: Response) => {
         break
       }
 
-      case 'PAYMENT.SALE.COMPLETED':
-      case 'PAYMENT.CAPTURE.COMPLETED': {
-        await applyRecurringSupporterCredits(userId)
+      case 'PAYMENT.SALE.COMPLETED': {
+        const refilled = await applyRecurringSupporterCredits(userId)
 
         await prismaAny.user.update({
           where: { id: userId },
-          data: {
-            plan: Plan.SUPPORTER,
-          },
+          data: { plan: Plan.SUPPORTER },
         })
+
+        if (!refilled) {
+          logger.info(
+            { userId, eventId: event.id, eventType: event.event_type },
+            'Recurring PayPal payment received but refill window not due yet',
+          )
+        }
         break
       }
 
