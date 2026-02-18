@@ -70,7 +70,8 @@ server/
 │   │   ├── openai.ts             # OpenAI client
 │   │   ├── s3.ts                 # S3 operations (upload, delete, presigned URLs)
 │   │   ├── logger.ts             # Pino logger
-│   │   └── cache.ts              # Redis caching utilities
+│   │   ├── cache.ts              # Redis caching utilities
+│   │   └── paypal.ts             # PayPal API client (access token, subscriptions, webhook verification)
 │   ├── middleware/
 │   │   ├── auth.ts               # authMiddleware, optionalAuthMiddleware
 │   │   ├── csrf.ts               # CSRF token generation & validation
@@ -83,6 +84,7 @@ server/
 │   │   ├── user.routes.ts        # /api/user (profile, generations, delete)
 │   │   ├── svg.routes.ts         # /api/svg (generate-svg, cancel, etc.)
 │   │   ├── plans.routes.ts       # /api/plans (plan metadata, limits, recommendation)
+│   │   ├── paypal.routes.ts      # /api/paypal (subscriptions, webhooks, billing status)
 │   │   ├── notification.routes.ts # /api/notification
 │   │   ├── support.routes.ts     # /api/support (contact form)
 │   │   ├── apiKeys.routes.ts     # /api/keys (API key management)
@@ -226,8 +228,8 @@ Frontend capability discovery endpoint:
 
 ### Plan Types
 
-- `FREE`: 100 starting credits, 50 credits every 30 days, 100 generations/month, API access (1 key max)
-- `SUPPORTER`: 1000 starting credits, 500 credits every 30 days, 1000 generations/month, API access (5 keys max)
+- `FREE`: 30 starting credits, no monthly refill, 30 generations/month, API access (1 key max)
+- `SUPPORTER`: 300 starting credits, 300 credits every 30 days, 300 generations/month, API access (5 keys max), $5/month via PayPal
 
 ### Plan Limits
 
@@ -266,6 +268,28 @@ export interface PlanLimits {
 
 - `src/utils/planLimits.ts` (plan definitions + utilities)
 - `src/routes/plans.routes.ts` (plan API endpoints)
+
+### PayPal Billing
+
+Plan upgrades/downgrades are managed entirely via PayPal webhooks. The app never polls PayPal — it reacts to events.
+
+**Webhook event flow (first-time subscriber):**
+
+1. User clicks subscribe → `POST /api/paypal/create-subscription` → PayPal returns approval URL
+2. User approves on PayPal → `BILLING.SUBSCRIPTION.ACTIVATED` webhook → `upgradeUserToSupporter()` grants 300 starting credits, sets plan, schedules next refill in 30 days
+3. `PAYMENT.SALE.COMPLETED` webhook → `applyRecurringSupporterCredits()` checks `nextCreditRefillAt <= now`; on initial payment this is in the future so nothing is granted (correct, credits already given in step 2)
+4. On next billing cycle → `PAYMENT.SALE.COMPLETED` → refill window is due → 300 credits added, window advances 30 days
+
+**Cancellation:** `BILLING.SUBSCRIPTION.CANCELLED / SUSPENDED / EXPIRED` → `downgradeUserToFree()` (sets plan = FREE, 0 refill)
+
+**Re-activation:** `BILLING.SUBSCRIPTION.RE-ACTIVATED` → `upgradeUserToSupporter()` (grants starting credits only if user was on FREE)
+
+**Idempotency:** Every webhook is stored in `PayPalWebhookEvent` with a unique constraint on `paypalEventId`. Duplicates return 200 immediately (Prisma P2002 = already processed).
+
+**Key files**:
+
+- `src/routes/paypal.routes.ts` (subscription management + webhook handler)
+- `src/lib/paypal.ts` (PayPal API client)
 
 ---
 
@@ -331,6 +355,15 @@ export interface PlanLimits {
 | POST   | `/svg/generate` | API Key | Create SVG generation job          |
 | GET    | `/svg/job/:id`  | API Key | Get SVG generation job status/data |
 
+### PayPal Billing (`/api/paypal`)
+
+| Method | Endpoint                  | Auth  | Description                              |
+| ------ | ------------------------- | ----- | ---------------------------------------- |
+| POST   | `/create-subscription`    | Yes   | Create PayPal subscription, return approval URL |
+| POST   | `/subscription/cancel`    | Yes   | Cancel active PayPal subscription        |
+| GET    | `/status`                 | Yes   | Get billing status + remote subscription |
+| POST   | `/webhook`                | No    | PayPal webhook handler (signature-verified) |
+
 ### Notifications (`/api/notification`)
 
 | Method | Endpoint | Auth | Description                |
@@ -365,10 +398,16 @@ export interface PlanLimits {
 - `name`: display name
 - `provider`: EMAIL | GOOGLE | GITHUB
 - `plan`: FREE | SUPPORTER
-- `credits`: monthly allowance
+- `credits`: current credit balance
+- `creditRefillAmount`: credits added on each refill cycle (0 for FREE)
+- `lastCreditRefillAt` / `nextCreditRefillAt`: refill schedule tracking
 - `avatar`: URL
 - `generationsQuotaLimit/Used/ResetAt`: unified generation quota
-- Relations: `generations`, `refreshTokens`, `generationJobs`, `apiKeys`
+- `paypalSubscriptionId`: PayPal subscription ID (starts with `I-`)
+- `paypalSubscriptionStatus`: APPROVAL_PENDING | APPROVED | ACTIVE | CANCELLED | SUSPENDED | EXPIRED
+- `paypalCustomerId`: PayPal payer ID
+- `paypalPlanId`: PayPal plan ID
+- Relations: `generations`, `refreshTokens`, `generationJobs`, `apiKeys`, `paypalWebhookEvents`
 
 #### `SvgGeneration`
 
@@ -427,6 +466,18 @@ export interface PlanLimits {
 - `message`: notification text
 - `isRead`: boolean
 - `createdAt`: timestamp
+
+#### `PayPalWebhookEvent`
+
+- `id`: cuid
+- `paypalEventId`: unique (PayPal-assigned event ID — used for idempotency; duplicate → P2002 → return 200 immediately)
+- `eventType`: e.g. `BILLING.SUBSCRIPTION.ACTIVATED`, `PAYMENT.SALE.COMPLETED`
+- `resourceId`: PayPal subscription ID extracted from event
+- `userId`: FK to User (nullable — some events arrive before user is resolvable)
+- `rawPayload`: full JSON event body
+- `receivedAt`: timestamp
+- `processedAt`: timestamp (null until handler completes)
+- `processingError`: error message if handler failed (null on success)
 
 **Full schema**: `prisma/schema.prisma`
 
@@ -733,6 +784,11 @@ Key variables in `.env`:
 - `ENABLE_EMAIL_AUTH`: feature flag for email/password routes
 - `TRUST_PROXY`: proxy hop/boolean setting for correct IP resolution
 - `PUBLIC_ASSETS_BASE_URL`: public URL prefix for generated SVG assets
+- `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET`: PayPal app credentials
+- `PAYPAL_SUPPORTER_PLAN_ID`: PayPal billing plan ID for the SUPPORTER plan
+- `PAYPAL_WEBHOOK_ID`: PayPal webhook ID (for signature verification)
+- `PAYPAL_BASE_URL`: `https://api-m.paypal.com` (live) or `https://api-m.sandbox.paypal.com` (sandbox)
+- `PAYPAL_RETURN_URL` / `PAYPAL_CANCEL_URL`: redirect URLs after PayPal checkout (defaults to `FRONTEND_URL/billing/paypal/success` and `/cancel`)
 
 ### Git Workflow
 
@@ -794,6 +850,7 @@ CI/CD via GitHub Actions:
 - **System Architecture**: `docs/SYSTEM_ARCHITECTURE.md`
 - **Authentication**: `docs/AUTHENTICATION.md`
 - **Async Generation**: `docs/ASYNC_GENERATION.md`
+- **Payments**: `docs/PAYMENTS.md`
 - **Infrastructure**: `docs/INFRA.md`
 - **Prisma Schema**: `prisma/schema.prisma`
 - **API Routes**: `src/routes/*.routes.ts`
@@ -854,6 +911,6 @@ if (error) return res.status(400).json({ error })
 
 ---
 
-**Last Updated**: 2026-02-17
+**Last Updated**: 2026-02-18
 
 For questions or clarifications, refer to the docs folder or check the code directly. Happy coding! 🚀

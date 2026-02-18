@@ -47,6 +47,14 @@
 - ✅ Horizontal worker scaling
 - ✅ Queue depth observability
 
+### Billing & Subscriptions
+
+- ✅ PayPal subscription integration (live)
+- ✅ Webhook-driven plan upgrades and downgrades
+- ✅ Idempotent webhook processing (duplicate-safe)
+- ✅ Credit delivery on subscription activation and monthly renewal
+- ✅ Automatic downgrade on cancellation / suspension / expiry
+
 ### Authentication & Security
 
 - ✅ Email/password authentication
@@ -165,6 +173,13 @@ RESEND_API_KEY=your_resend_api_key
 # Worker Configuration
 SVG_WORKER_CONCURRENCY=2
 
+# PayPal Billing
+PAYPAL_CLIENT_ID=your_paypal_client_id
+PAYPAL_CLIENT_SECRET=your_paypal_client_secret
+PAYPAL_SUPPORTER_PLAN_ID=your_paypal_plan_id
+PAYPAL_WEBHOOK_ID=your_paypal_webhook_id
+PAYPAL_BASE_URL=https://api-m.paypal.com  # or https://api-m.sandbox.paypal.com for testing
+
 # Environment
 NODE_ENV=development
 ```
@@ -269,14 +284,19 @@ server/
 │   │   ├── auth.routes.ts          # Authentication endpoints
 │   │   ├── svg.routes.ts           # SVG generation endpoints
 │   │   ├── user.routes.ts          # User management endpoints
+│   │   ├── plans.routes.ts         # Plan metadata endpoints
+│   │   ├── paypal.routes.ts        # PayPal billing + webhook handler
+│   │   ├── apiKeys.routes.ts       # API key management
+│   │   ├── notification.routes.ts  # Notifications
+│   │   ├── admin.routes.ts         # Admin endpoints
+│   │   ├── v1.routes.ts            # Public API (/v1)
 │   │   └── __tests__/              # Route tests
 │   ├── middleware/
 │   │   ├── auth.ts                 # JWT verification
 │   │   ├── csrf.ts                 # CSRF protection
-│   │   ├── rateLimiter.ts          # Rate limiting
-│   │   ├── checkCredits.ts         # Credit validation
-│   │   └── dailyLimit.ts           # Usage limits
+│   │   └── rateLimiter.ts          # Plan-aware rate limiting
 │   ├── utils/
+│   │   ├── planLimits.ts           # Plan limits + credit values
 │   │   ├── refreshToken.ts         # Token rotation logic
 │   │   ├── setAuthCookie.ts        # Cookie helpers
 │   │   ├── sanitizeInput.ts        # Input sanitization
@@ -285,18 +305,24 @@ server/
 │   │   ├── passport.ts             # OAuth strategies
 │   │   └── env.ts                  # Environment config
 │   ├── services/
-│   │   ├── aiService.ts            # AI/LLM integration
-│   │   └── emailService.ts         # Email sending
+│   │   ├── aiService.ts            # OpenAI SVG generation
+│   │   ├── emailService.ts         # Email sending (Resend)
+│   │   ├── svgGenerationService.ts # Core generation logic
+│   │   ├── usageTrackingService.ts # Quota management
+│   │   └── apiKeyService.ts        # API key validation
 │   ├── jobs/
 │   │   ├── cleanupExpiredTokens.ts # Token cleanup cron
-│   │   ├── index.ts                # Job scheduler
-│   │   └── svgGenerationQueue.ts   # BullMQ queue + scheduler
+│   │   └── svgGenerationQueue.ts   # BullMQ queue setup
 │   ├── lib/
-│   │   ├── bullmq.ts               # Shared BullMQ connection helper
 │   │   ├── prisma.ts               # Database client
-│   │   └── redis.ts                # Redis client wrapper
+│   │   ├── redis.ts                # Redis client
+│   │   ├── openai.ts               # OpenAI client
+│   │   ├── s3.ts                   # S3 operations
+│   │   ├── paypal.ts               # PayPal API client
+│   │   ├── logger.ts               # Pino logger
+│   │   └── cache.ts                # Redis caching
 │   ├── workers/
-│   │   └── svgGenerationWorker.ts  # Queue worker entry point
+│   │   └── svgGenerationWorker.ts  # BullMQ worker
 │   ├── app.ts                      # Express app setup
 │   └── server.ts                   # Server entry point
 ├── prisma/
@@ -304,7 +330,13 @@ server/
 │   └── migrations/                 # Migration history
 ├── docs/
 │   ├── README.md                   # This file
-│   └── AUTHENTICATION.md           # Detailed auth docs
+│   ├── AGENTS.md                   # AI agent reference guide
+│   ├── AUTHENTICATION.md           # Auth flows & security
+│   ├── ASYNC_GENERATION.md         # BullMQ pipeline details
+│   ├── PAYMENTS.md                 # PayPal billing integration
+│   ├── BACKEND_ARCHITECTURE.md     # Backend architecture overview
+│   ├── SYSTEM_ARCHITECTURE.md      # Full system diagram
+│   └── INFRA.md                    # Infrastructure & deployment
 ├── Dockerfile                      # Multi-stage Docker build
 ├── docker-compose.yml              # Local dev environment
 ├── .env.example                    # Environment variable template
@@ -558,23 +590,19 @@ See [`schema.prisma`](../prisma/schema.prisma) for complete schema and [`ASYNC_G
 
 Production infrastructure and deployment details are documented in [`INFRA.md`](./INFRA.md).
 
-### Production Checklist
+### Production Setup
 
-- [ ] Set `NODE_ENV=production`
-- [ ] Use strong `JWT_SECRET` (32+ characters)
-- [ ] Enable HTTPS (required for secure cookies)
-- [ ] Configure CORS for production domain
-- [ ] Set up database backups
-- [ ] Configure environment variables in hosting platform
-- [ ] Set up monitoring and logging
-- [ ] Enable rate limiting
-- [ ] Configure email service
-- [ ] Set up OAuth redirect URIs for production domain
-- [ ] Provision Redis (AWS ElastiCache)
-- [ ] Provision S3 bucket for SVG artifact storage
-- [ ] Deploy worker service separately from API (`chatsvg-worker`)
-- [ ] Configure `SVG_WORKER_CONCURRENCY` based on load
-- [ ] Set up health checks for both API and worker
+The application is deployed to production at `https://api.chatsvg.dev`. The infrastructure stack:
+
+- **API + Worker**: Kubernetes (k3s) on AWS EC2, deployed via GitHub Actions → ECR → kubectl
+- **Database**: Neon (PostgreSQL)
+- **Cache / Queue**: AWS ElastiCache (Redis)
+- **Storage**: AWS S3 (generated SVG artifacts)
+- **Email**: Resend
+- **Payments**: PayPal (live subscriptions)
+- **TLS**: cert-manager + Let's Encrypt via Traefik ingress
+
+See [`INFRA.md`](./INFRA.md) for full deployment details and [`PAYMENTS.md`](./PAYMENTS.md) for the billing integration.
 
 ### Recommended Hosting
 
@@ -610,11 +638,6 @@ This project is licensed under the MIT License - see the [LICENSE](../LICENSE) f
 
 ## 🙏 Acknowledgments
 
-- Built as a demonstration of production-ready authentication patterns
 - Implements OWASP security best practices
-- Designed to be interview-ready and easily explainable
 - Emphasizes real-world session handling and token security
-
----
-
-**Note:** This project intentionally emphasizes security and real-world session handling patterns. The authentication flow is implemented to be explainable in interviews and robust enough for production deployment.
+- Built with a focus on correctness, observability, and production resilience

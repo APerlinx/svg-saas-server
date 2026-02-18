@@ -22,6 +22,10 @@ flowchart TB
   Routes --> Svg[SVG\n`src/routes/svg.routes.ts`]
   Routes --> User[User\n`src/routes/user.routes.ts`]
   Routes --> Notif[Notifications\n`src/routes/notification.routes.ts`]
+  Routes --> PayPal[PayPal\n`src/routes/paypal.routes.ts`]
+
+  PayPal -->|webhook events| PayPalAPI[PayPal API\n`src/lib/paypal.ts`]
+  PayPal --> Prisma
 
   API --> Prisma[Prisma\n`src/lib/prisma.ts`]
   Prisma --> Postgres[(PostgreSQL\nNeon)]
@@ -124,6 +128,41 @@ Notifications are created server-side (best-effort) at these points:
 - "Out of credits" notification after a successful job if the user reaches 0 credits
 
 For deeper details: `ASYNC_GENERATION.md`.
+
+---
+
+## PayPal billing (webhook-driven)
+
+Plan upgrades and downgrades are driven entirely by PayPal webhook events — the app never polls PayPal.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant API as API
+  participant PP as PayPal
+  participant DB as Postgres
+
+  U->>API: POST /api/paypal/create-subscription
+  API->>PP: create subscription (custom_id = userId)
+  PP-->>API: { id, approveUrl }
+  API-->>U: approveUrl
+
+  U->>PP: approve on PayPal
+  PP->>API: POST /webhook BILLING.SUBSCRIPTION.ACTIVATED
+  API->>API: verify signature
+  API->>DB: store PayPalWebhookEvent (idempotency)
+  API->>DB: plan=SUPPORTER, credits+=300, nextCreditRefillAt=+30d
+
+  PP->>API: POST /webhook PAYMENT.SALE.COMPLETED
+  API->>API: verify signature
+  API->>DB: store PayPalWebhookEvent (idempotency)
+  API->>DB: updateMany where nextCreditRefillAt<=now → add 300 credits (skipped on first payment, refill not due)
+```
+
+On cancellation/suspension/expiry: `BILLING.SUBSCRIPTION.CANCELLED/SUSPENDED/EXPIRED` → plan = FREE, refill = 0.
+
+For full details: `PAYMENTS.md`.
 
 ---
 
