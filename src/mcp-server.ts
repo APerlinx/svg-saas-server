@@ -198,7 +198,7 @@ export const app = express()
 app.use(helmet())
 app.use(express.json({ type: '*/*' }))
 
-app.get('/health', (_req, res) => {
+app.get('/mcp/health', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'mcp' })
 })
 
