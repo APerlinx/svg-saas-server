@@ -198,6 +198,10 @@ export const app = express()
 app.use(helmet())
 app.use(express.json({ type: '*/*' }))
 
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', service: 'mcp' })
+})
+
 app.post('/mcp', apiKeyAuth, createPlanRateLimiter(), async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string
 
