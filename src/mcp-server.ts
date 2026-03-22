@@ -12,9 +12,14 @@ import {
 } from './services/svgGenerationService'
 import prisma from './lib/prisma'
 import { GenerationJobStatus } from '@prisma/client'
-import { SvgStyle } from './constants/svgStyles'
+import { SvgStyle, VALID_SVG_STYLES } from './constants/svgStyles'
+import { logger } from './lib/logger'
+import { createPlanRateLimiter } from './middleware/rateLimiter'
+import { incrementGenerationQuota } from './middleware/monthlyGenerationQuota'
+import { logApiUsage } from './services/usageTrackingService'
+import helmet from 'helmet'
 
-const sessions = new Map<string, StreamableHTTPServerTransport>()
+export const sessions = new Map<string, StreamableHTTPServerTransport>()
 
 function createMcpServer({
   userId,
@@ -39,6 +44,7 @@ function createMcpServer({
       },
     },
     async ({ prompt, style }) => {
+      const startTime = Date.now()
       try {
         await processUserCreditRefill(userId)
 
@@ -73,6 +79,16 @@ function createMcpServer({
 
         try {
           await enqueueGenerationJob(result.job.id, userId)
+          await incrementGenerationQuota(userId)
+          logApiUsage({
+            apiKeyId,
+            userId,
+            endpoint: '/mcp/generate_svg',
+            method: 'POST',
+            statusCode: 202,
+            latencyMs: Date.now() - startTime,
+            creditsUsed: 1,
+          }).catch((err) => logger.error({ err }, 'Failed to log MCP API usage'))
         } catch (enqueueError) {
           await prisma.$transaction(async (tx) => {
             const refundClaim = await tx.generationJob.updateMany({
@@ -123,7 +139,6 @@ function createMcpServer({
       }
     },
   )
-
   server.registerTool(
     'get_job_status',
     {
@@ -160,13 +175,30 @@ function createMcpServer({
       }
     },
   )
+  server.registerTool(
+    'list_styles',
+    {
+      description:
+        'List all available SVG styles that can be used with generate_svg',
+    },
+    async () => ({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ styles: VALID_SVG_STYLES }),
+        },
+      ],
+    }),
+  )
+
   return server
 }
 
-const app = express()
+export const app = express()
+app.use(helmet())
 app.use(express.json({ type: '*/*' }))
 
-app.post('/mcp', apiKeyAuth, async (req, res) => {
+app.post('/mcp', apiKeyAuth, createPlanRateLimiter(), async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string
 
   if (sessionId) {
@@ -175,7 +207,12 @@ app.post('/mcp', apiKeyAuth, async (req, res) => {
       res.status(404).json({ error: 'Session not found' })
       return
     }
-    await transport.handleRequest(req, res, req.body)
+    try {
+      await transport.handleRequest(req, res, req.body)
+    } catch (error) {
+      logger.error({ error }, 'Error handling MCP request')
+      res.status(500).json({ error: 'Internal server error' })
+    }
     return
   }
 
@@ -190,7 +227,14 @@ app.post('/mcp', apiKeyAuth, async (req, res) => {
   transport.onclose = () => sessions.delete(newSessionId)
   await server.connect(transport)
   sessions.set(newSessionId, transport)
-  await transport.handleRequest(req, res, req.body)
+  logger.info(`New MCP session created: ${newSessionId}`)
+
+  try {
+    await transport.handleRequest(req, res, req.body)
+  } catch (error) {
+    logger.error({ error }, 'Error handling MCP request')
+    res.status(500).json({ error: 'Internal server error' })
+  }
 })
 
 app.get('/mcp', apiKeyAuth, async (req, res) => {
@@ -204,7 +248,12 @@ app.get('/mcp', apiKeyAuth, async (req, res) => {
     res.status(404).send('Session not found')
     return
   }
-  await transport.handleRequest(req, res)
+  try {
+    await transport.handleRequest(req, res)
+  } catch (error) {
+    logger.error({ error }, 'Error handling MCP request')
+    res.status(500).json({ error: 'Internal server error' })
+  }
 })
 
 app.delete('/mcp', apiKeyAuth, async (req, res) => {
@@ -215,12 +264,18 @@ app.delete('/mcp', apiKeyAuth, async (req, res) => {
   }
   const transport = sessions.get(sessionId)
   if (transport) {
-    await transport.close()
+    try {
+      await transport.close()
+    } catch (error) {
+      logger.error({ error }, 'Error closing MCP session')
+    }
   }
   res.status(200).send('Session closed')
 })
 
-const PORT = process.env.MCP_PORT || 3001
-app.listen(PORT, () => {
-  console.log(`MCP server listening on port ${PORT}`)
-})
+if (require.main === module) {
+  const PORT = process.env.MCP_PORT || 3001
+  app.listen(PORT, () => {
+    logger.info(`MCP Server is running on port ${PORT}`)
+  })
+}
