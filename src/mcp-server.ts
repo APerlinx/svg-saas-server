@@ -88,7 +88,9 @@ function createMcpServer({
             statusCode: 202,
             latencyMs: Date.now() - startTime,
             creditsUsed: 1,
-          }).catch((err) => logger.error({ err }, 'Failed to log MCP API usage'))
+          }).catch((err) =>
+            logger.error({ err }, 'Failed to log MCP API usage'),
+          )
         } catch (enqueueError) {
           await prisma.$transaction(async (tx) => {
             const refundClaim = await tx.generationJob.updateMany({
@@ -211,6 +213,18 @@ app.post('/mcp', apiKeyAuth, createPlanRateLimiter(), async (req, res) => {
       res.status(404).json({ error: 'Session not found' })
       return
     }
+
+    const isNotification =
+      req.body &&
+      req.body.jsonrpc === '2.0' &&
+      req.body.id === undefined &&
+      req.body.method
+    if (isNotification) {
+      logger.debug({ method: req.body.method }, 'MCP notification received')
+      res.status(202).send()
+      return
+    }
+
     try {
       await transport.handleRequest(req, res, req.body)
     } catch (error) {
