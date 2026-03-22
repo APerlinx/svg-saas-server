@@ -9,3 +9,4 @@ coverage/
 
 # Claude Code local settings (machine-specific)
 .claude/
+.mcp.json
