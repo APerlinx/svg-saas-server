@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(npm config get:*)",
-      "Bash(find:*)",
-      "Bash(npx tsc:*)"
-    ]
-  }
-}

@@ -11,6 +11,9 @@
     "test:watch": "cross-env NODE_ENV=test jest --watch",
     "build": "tsc",
     "start": "cross-env NODE_ENV=production node dist/server.js",
+    "mcp:dev": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only src/mcp-server.ts",
+    "mcp:test": "cross-env NODE_ENV=test ts-node-dev src/mcp-server.ts",
+    "mcp": "node dist/mcp-server.js",
     "worker:dev": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only src/workers/svgGenerationWorker.ts",
     "worker:test": "cross-env NODE_ENV=test ts-node-dev src/workers/svgGenerationWorker.ts",
     "worker": "node dist/workers/svgGenerationWorker.js",
@@ -28,6 +31,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.964.0",
     "@aws-sdk/s3-request-presigner": "^3.964.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@prisma/client": "^6.19.0",
     "@sentry/node": "^10.32.1",
     "@sentry/profiling-node": "^10.32.1",
@@ -56,7 +60,8 @@
     "prisma": "^6.19.0",
     "redis": "^5.10.0",
     "resend": "^6.5.2",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

@@ -1,6 +1,5 @@
 import request from 'supertest'
 import express from 'express'
-import { GenerationJobStatus } from '@prisma/client'
 
 // Mock everything BEFORE importing the router
 jest.mock('../../../lib/prisma', () => ({
