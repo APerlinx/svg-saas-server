@@ -8,6 +8,7 @@ This document describes the production architecture of the ChatSVG backend.
 flowchart TB
 	User[Users / Clients] -->|HTTPS| Frontend[Frontend\nNext.js on Vercel\nhttps://chatsvg.dev]
 	User -->|HTTPS (JWT, CSRF, cookies)| ApiDomain[Backend API\nhttps://api.chatsvg.dev]
+	User -->|HTTPS (OAuth Bearer token)| McpDomain[MCP\nhttps://api.chatsvg.dev/mcp]
 
 	ApiDomain --> DNS[DNS\nCloudflare / Registrar]
 	DNS --> EC2[AWS EC2\n(Ubuntu Linux)]
@@ -16,24 +17,31 @@ flowchart TB
 		Ingress[Ingress\nTraefik]
 		Cert[cert-manager\nLet's Encrypt]
 		ApiSvc[Service\nClusterIP\nchatsvg-api]
+		McpSvc[Service\nClusterIP\nchatsvg-mcp]
 		API[API Pod(s)\nNode.js / Express\n- Auth (JWT, CSRF)\n- REST API\n- Enqueue jobs]
+		MCP[MCP Pod(s)\nNode.js / Express\n- Streamable HTTP transport\n- OAuth Bearer auth\n- MCP tools]
 		Worker[Worker Pod(s)\nBullMQ\n- Process SVG jobs\n- Upload to S3]
 	end
 
 	EC2 --> Ingress
 	Cert -.-> Ingress
 	Ingress -->|HTTPS :443| ApiSvc
+	Ingress -->|HTTPS :443| McpSvc
 	ApiSvc --> API
+	McpSvc --> MCP
 
 	API -->|Prisma| Postgres[(PostgreSQL\nNeon)]
 	API --> Redis[(Redis\nAWS ElastiCache\n- BullMQ queues\n- Cache / coordination)]
+	MCP --> Postgres
+	MCP --> Redis
 	Worker --> Redis
 	Worker --> S3[(AWS S3\nGenerated SVG files)]
 	API -->|Signed URL generation| S3
+	MCP -->|enqueue generation jobs| Redis
 
 	subgraph CICD[CI/CD (GitHub Actions)]
 		GH[Git push] --> Build[Build Docker images]
-		Build --> ECR[AWS ECR\n- chatsvg-api:<sha>\n- chatsvg-worker:<sha>]
+		Build --> ECR[AWS ECR\n- chatsvg-api:<sha>\n- chatsvg-worker:<sha>\n- chatsvg-mcp:<sha>]
 		ECR --> Runner[Self-hosted runner on EC2\nDeploy via kubectl]
 	end
 ```
@@ -43,6 +51,7 @@ flowchart TB
 - **Ingress (Traefik):** TLS termination, HTTP→HTTPS redirect, host-based routing for `api.chatsvg.dev`.
 - **cert-manager:** Issues and renews Let’s Encrypt certificates.
 - **API pods:** Handle HTTP requests, auth, job creation, and secure download URL generation.
+- **MCP pods:** Handle Streamable HTTP MCP sessions and execute MCP tools over OAuth Bearer auth.
 - **Worker pods:** Consume BullMQ jobs, generate SVGs, upload artifacts to S3, and update metadata in PostgreSQL.
 - **PostgreSQL (Neon):** Persistent data (users, job/generation metadata).
 - **Redis (AWS ElastiCache):** BullMQ queues and coordination.

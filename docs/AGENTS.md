@@ -15,9 +15,10 @@ This document provides comprehensive context for AI agents working on the ChatSV
 7. [Database Schema](#database-schema)
 8. [Services & Utilities](#services--utilities)
 9. [Async Job Processing](#async-job-processing)
-10. [Code Patterns & Conventions](#code-patterns--conventions)
-11. [Testing](#testing)
-12. [Development Workflow](#development-workflow)
+10. [MCP Server](#mcp-server)
+11. [Code Patterns & Conventions](#code-patterns--conventions)
+12. [Testing](#testing)
+13. [Development Workflow](#development-workflow)
 
 ---
 
@@ -25,7 +26,7 @@ This document provides comprehensive context for AI agents working on the ChatSV
 
 **ChatSVG** is a SaaS application that generates SVG images using AI (OpenAI GPT models). It consists of:
 
-- **Backend (this repo)**: Node.js/Express REST API + BullMQ workers
+- **Backend (this repo)**: Node.js/Express REST API + BullMQ workers + standalone MCP server
 - **Frontend (../client)**: React application deployed on Vercel (separate repo)
 - **Infrastructure**: Kubernetes (k3s) on AWS EC2, PostgreSQL (Neon), Redis (ElastiCache), S3
 
@@ -54,6 +55,7 @@ server/
 ├── src/
 │   ├── app.ts                    # Express app setup (middleware, routes, error handling)
 │   ├── server.ts                 # HTTP server + Socket.IO bootstrap
+│   ├── mcp-server.ts             # MCP Streamable HTTP server
 │   ├── config/
 │   │   ├── env.ts                # Environment variables & validation
 │   │   └── passport.ts           # OAuth strategies (Google, GitHub)
@@ -74,6 +76,7 @@ server/
 │   │   └── paypal.ts             # PayPal API client (access token, subscriptions, webhook verification)
 │   ├── middleware/
 │   │   ├── auth.ts               # authMiddleware, optionalAuthMiddleware
+│   │   ├── oauthAuth.ts          # OAuth Bearer auth for MCP transport
 │   │   ├── csrf.ts               # CSRF token generation & validation
 │   │   ├── rateLimiter.ts        # Unified Redis/Lua rate limiting (fixed + plan-based)
 │   │   └── requestId.ts          # Request ID tracking
@@ -89,7 +92,9 @@ server/
 │   │   ├── support.routes.ts     # /api/support (contact form)
 │   │   ├── apiKeys.routes.ts     # /api/keys (API key management)
 │   │   ├── admin.routes.ts       # /api/admin (admin endpoints)
-│   │   └── v1.routes.ts          # /v1 (public API for developers)
+│   │   ├── v1.routes.ts          # /v1 (public API for developers)
+│   │   ├── oauth.routes.ts       # /oauth (OAuth for MCP clients)
+│   │   └── oauthWellKnown.routes.ts # /.well-known OAuth metadata
 │   ├── services/
 │   │   ├── aiService.ts          # OpenAI integration (prompt generation, SVG generation)
 │   │   ├── emailService.ts       # Email sending (welcome, password reset, support)
@@ -355,14 +360,33 @@ Plan upgrades/downgrades are managed entirely via PayPal webhooks. The app never
 | POST   | `/svg/generate` | API Key | Create SVG generation job          |
 | GET    | `/svg/job/:id`  | API Key | Get SVG generation job status/data |
 
+### MCP OAuth (`/oauth`, `/.well-known`)
+
+| Method | Endpoint                                  | Auth | Description                              |
+| ------ | ----------------------------------------- | ---- | ---------------------------------------- |
+| GET    | `/.well-known/oauth-authorization-server` | No   | OAuth metadata discovery for MCP clients |
+| POST   | `/oauth/register`                         | No   | Dynamic OAuth client registration        |
+| GET    | `/oauth/authorize`                        | No   | OAuth authorization page                 |
+| POST   | `/oauth/authorize`                        | No   | Approve OAuth request with API key       |
+| POST   | `/oauth/token`                            | No   | Exchange auth code / refresh token       |
+
+### MCP Transport (`/mcp`)
+
+| Method | Endpoint      | Auth (OAuth Bearer) | Description                         |
+| ------ | ------------- | ------------------- | ----------------------------------- |
+| POST   | `/mcp`        | Yes                 | MCP request handling + session init |
+| GET    | `/mcp`        | Yes                 | MCP session polling                 |
+| DELETE | `/mcp`        | Yes                 | Close MCP session                   |
+| GET    | `/mcp/health` | No                  | MCP health endpoint                 |
+
 ### PayPal Billing (`/api/paypal`)
 
-| Method | Endpoint                  | Auth  | Description                              |
-| ------ | ------------------------- | ----- | ---------------------------------------- |
-| POST   | `/create-subscription`    | Yes   | Create PayPal subscription, return approval URL |
-| POST   | `/subscription/cancel`    | Yes   | Cancel active PayPal subscription        |
-| GET    | `/status`                 | Yes   | Get billing status + remote subscription |
-| POST   | `/webhook`                | No    | PayPal webhook handler (signature-verified) |
+| Method | Endpoint               | Auth | Description                                     |
+| ------ | ---------------------- | ---- | ----------------------------------------------- |
+| POST   | `/create-subscription` | Yes  | Create PayPal subscription, return approval URL |
+| POST   | `/subscription/cancel` | Yes  | Cancel active PayPal subscription               |
+| GET    | `/status`              | Yes  | Get billing status + remote subscription        |
+| POST   | `/webhook`             | No   | PayPal webhook handler (signature-verified)     |
 
 ### Notifications (`/api/notification`)
 
@@ -607,6 +631,22 @@ Jobs support `idempotencyKey` to safely retry requests without duplicate charges
 - `src/workers/svgGenerationWorker.ts` (worker)
 - `src/services/svgGenerationService.ts` (job processing logic)
 - `docs/ASYNC_GENERATION.md`
+
+---
+
+## MCP Server
+
+The MCP server runs as a separate process via `src/mcp-server.ts`.
+
+- Transport: Streamable HTTP
+- Auth: OAuth access token in `Authorization: Bearer <token>`
+- Session key: `MCP-Session-Id` header
+- Tools: `list_styles`, `generate_svg`, `get_job_status`
+- Rate limiting: plan-aware limiter on `POST /mcp`
+
+OAuth endpoints consumed by MCP clients are exposed by the API app (`src/app.ts`) at `/.well-known/*` and `/oauth/*`.
+
+`generate_svg` in MCP reuses the same async queue + worker pipeline used by `/api/svg` and `/v1/svg`.
 
 ---
 

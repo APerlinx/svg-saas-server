@@ -2,7 +2,7 @@
 
 # chatSVG - Backend
 
-> A production-grade SaaS backend for generating SVG assets, featuring secure cookie-based auth (JWT + refresh rotation), CSRF protection, BullMQ-driven async processing, and S3-backed artifact storage with signed downloads—fully tested and deployable via Docker.
+> A production-grade SaaS backend for generating SVG assets, featuring secure cookie-based auth (JWT + refresh rotation), CSRF protection, BullMQ-driven async processing, a standalone OAuth-protected MCP server, and S3-backed artifact storage with signed downloads—fully tested and deployable via Docker.
 
 ## 🚀 Tech Stack
 
@@ -14,6 +14,7 @@
 - **Prisma ORM** (type-safe database client)
 - **BullMQ** (async job queue for SVG generation)
 - **Passport.js** (OAuth strategies for Google & GitHub)
+- **Model Context Protocol SDK** (Streamable HTTP MCP server)
 
 ### Security & Authentication
 
@@ -81,6 +82,14 @@
 - ✅ Notifications badge via `notificationsLastSeenAt`
 - ✅ Notification triggers: welcome, job succeeded/failed, out-of-credits
 - ✅ API endpoints: `GET /api/notification/latest`, `GET /api/notification/badge`, `POST /api/notification/seen`
+
+### MCP Server (OAuth + Streamable HTTP)
+
+- ✅ Standalone MCP process (`src/mcp-server.ts`)
+- ✅ OAuth-protected transport (`Authorization: Bearer`)
+- ✅ Tooling: `list_styles`, `generate_svg`, `get_job_status`
+- ✅ Reuses async queue + worker generation pipeline
+- ✅ Dedicated health endpoint: `GET /mcp/health`
 
 ---
 
@@ -199,7 +208,7 @@ npm run seed
 
 ### 4. Run Development Server
 
-**Option A: Local Development (API + Worker)**
+**Option A: Local Development (API + Worker + MCP)**
 
 ```bash
 # Terminal 1: Start Redis + Postgres
@@ -210,9 +219,13 @@ npm run dev
 
 # Terminal 3: Start worker
 npm run worker:dev
+
+# Terminal 4: Start MCP server
+npm run mcp:dev
 ```
 
 Server will start on `http://localhost:4000`
+MCP server will start on `http://localhost:3001/mcp`
 
 **Option B: Full Docker (API + Worker + PostgreSQL + Redis)**
 
@@ -324,7 +337,8 @@ server/
 │   ├── workers/
 │   │   └── svgGenerationWorker.ts  # BullMQ worker
 │   ├── app.ts                      # Express app setup
-│   └── server.ts                   # Server entry point
+│   ├── server.ts                   # API server entry point
+│   └── mcp-server.ts               # MCP server entry point
 ├── prisma/
 │   ├── schema.prisma               # Database schema
 │   └── migrations/                 # Migration history
@@ -334,6 +348,7 @@ server/
 │   ├── AUTHENTICATION.md           # Auth flows & security
 │   ├── ASYNC_GENERATION.md         # BullMQ pipeline details
 │   ├── PAYMENTS.md                 # PayPal billing integration
+│   ├── MCP_SERVER.md               # MCP architecture, auth, and usage
 │   ├── BACKEND_ARCHITECTURE.md     # Backend architecture overview
 │   ├── SYSTEM_ARCHITECTURE.md      # Full system diagram
 │   └── INFRA.md                    # Infrastructure & deployment
@@ -418,6 +433,20 @@ docker-compose down -v
 
 **See [ASYNC_GENERATION.md](./ASYNC_GENERATION.md) for complete async pipeline documentation.**
 
+### MCP OAuth + Transport
+
+- `GET /.well-known/oauth-authorization-server` - OAuth metadata for MCP clients
+- `POST /oauth/register` - Dynamic OAuth client registration
+- `GET /oauth/authorize` - OAuth authorization UI
+- `POST /oauth/authorize` - Approve OAuth request using an API key
+- `POST /oauth/token` - Exchange auth code / refresh token
+- `POST /mcp` - Streamable HTTP MCP requests
+- `GET /mcp` - Streamable HTTP MCP polling
+- `DELETE /mcp` - Close MCP session
+- `GET /mcp/health` - MCP health check
+
+**See [MCP_SERVER.md](./MCP_SERVER.md) for the full MCP flow, auth model, and local setup.**
+
 ---
 
 ## ⚙️ Async SVG Generation Pipeline
@@ -427,14 +456,12 @@ SVG creation runs through a BullMQ queue so the API never blocks on OpenAI laten
 ### How it Works
 
 1. **POST `/api/svg/generate-svg`**
-
    - Validates prompt, style, and model
    - Creates a `GenerationJob` record (status: `QUEUED`)
    - Enqueues job to Redis via BullMQ
    - Returns `202 Accepted` with job ID
 
 2. **Worker processes job**
-
    - Claims job atomically (status: `RUNNING`)
    - Charges 1 credit (transactional, idempotent)
    - Calls OpenAI API to generate SVG
@@ -495,7 +522,6 @@ Both need access to the same `DATABASE_URL` and `REDIS_URL`.
 ### Implemented Protections
 
 1. **Token Security**
-
    - HttpOnly cookies (XSS prevention)
    - SHA-256 hashing for refresh tokens
    - Token rotation with reuse detection
@@ -503,26 +529,22 @@ Both need access to the same `DATABASE_URL` and `REDIS_URL`.
    - Automatic cleanup of expired tokens
 
 2. **CSRF Protection**
-
    - Double-submit cookie pattern
    - Header validation on write operations
    - State parameter for OAuth flows
 
 3. **Rate Limiting**
-
    - 5 attempts per 15 minutes (auth endpoints)
    - 3 attempts per 15 minutes (password reset)
    - IP-based tracking
 
 4. **OAuth Security**
-
    - Composite unique constraint on `provider` + `providerId`
    - Email verification required (Google: strict, GitHub: on linking)
    - State parameter with timestamp validation
    - Prevents account hijacking via unverified emails
 
 5. **Observability & Incident Response**
-
    - Request correlation via `x-request-id` header
    - Structured logging with Pino (includes requestId)
    - Sentry integration for error tracking
@@ -530,14 +552,12 @@ Both need access to the same `DATABASE_URL` and `REDIS_URL`.
    - Comprehensive audit trails
 
 6. **Input Validation**
-
    - Email format validation
    - Password strength requirements (8+ chars)
    - Input sanitization
    - Maximum length checks
 
 7. **Database Security**
-
    - Parameterized queries (SQL injection prevention)
    - Atomic transactions (race condition prevention)
    - Cascading deletes for data consistency
@@ -594,7 +614,7 @@ Production infrastructure and deployment details are documented in [`INFRA.md`](
 
 The application is deployed to production at `https://api.chatsvg.dev`. The infrastructure stack:
 
-- **API + Worker**: Kubernetes (k3s) on AWS EC2, deployed via GitHub Actions → ECR → kubectl
+- **API + Worker + MCP**: Kubernetes (k3s) on AWS EC2, deployed via GitHub Actions → ECR → kubectl
 - **Database**: Neon (PostgreSQL)
 - **Cache / Queue**: AWS ElastiCache (Redis)
 - **Storage**: AWS S3 (generated SVG artifacts)
@@ -613,10 +633,11 @@ See [`INFRA.md`](./INFRA.md) for full deployment details and [`PAYMENTS.md`](./P
 - **Object storage:** AWS S3
 - **Email:** Resend
 
-**Worker Deployment:**
+**Worker/MCP Deployment:**
 
 - Same codebase as API, different start command (`npm run worker`)
-- Can scale independently (1 API + N workers)
+- MCP transport runs as a separate process (`npm run mcp`)
+- Can scale independently (1 API + N workers + N MCP pods)
 - Requires access to same Redis and database
 
 ---

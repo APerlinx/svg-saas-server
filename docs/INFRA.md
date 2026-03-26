@@ -5,10 +5,11 @@ It focuses on AWS, Kubernetes (k3s), networking, and runtime configuration.
 
 ## Overview
 
-The backend runs on a single AWS EC2 instance (Ubuntu) hosting a k3s cluster. The cluster runs two deployments:
+The backend runs on a single AWS EC2 instance (Ubuntu) hosting a k3s cluster. The cluster runs three deployments:
 
 - `chatsvg-api`: HTTP API (Node.js/Express)
 - `chatsvg-worker`: background job processor (BullMQ)
+- `chatsvg-mcp`: MCP transport server (Streamable HTTP)
 
 Stateful services are hosted outside the cluster:
 
@@ -22,7 +23,7 @@ Stateful services are hosted outside the cluster:
 - Automated CI/CD (no manual SSH deploys)
 - No stateful services inside the cluster
 - HTTPS + real domain routing
-- Clear separation between request handling and async workloads
+- Clear separation between request handling, async workloads, and MCP transport
 
 ## Domains & networking
 
@@ -48,7 +49,7 @@ Responsibilities at the edge:
 
 k3s runs on a single EC2 node and is responsible for:
 
-- Running API and worker pods
+- Running API, worker, and MCP pods
 - Rolling updates and restarts
 - Injecting environment variables via Secrets/ConfigMaps
 - Pulling images from AWS ECR via `imagePullSecret`
@@ -57,8 +58,10 @@ k3s runs on a single EC2 node and is responsible for:
 
 - `chatsvg-api`: serves REST API traffic and enqueues jobs
 - `chatsvg-worker`: consumes BullMQ jobs and performs SVG generation + uploads
+- `chatsvg-mcp`: serves `/mcp` Streamable HTTP requests and executes MCP tools
 
 Workers are isolated from HTTP traffic so async load does not impact request latency.
+MCP runs in its own deployment to isolate transport/session load from web API traffic.
 
 ## Containerization
 
@@ -70,6 +73,7 @@ Workers are isolated from HTTP traffic so async load does not impact request lat
 
 - `chatsvg-api:<tag>`
 - `chatsvg-worker:<tag>`
+- `chatsvg-mcp:<tag>`
 
 Kubernetes pulls images directly from ECR.
 
@@ -83,10 +87,10 @@ GitHub Actions builds and pushes images to ECR. Deployment happens from a self-h
 
 Pipeline overview:
 
-1. Build Docker images (API + worker)
+1. Build Docker images (API + worker + MCP)
 2. Tag images with git SHA
 3. Push images to AWS ECR
-4. Trigger a k3s rollout via `kubectl set image`
+4. Trigger k3s rollouts via `kubectl set image`
 5. Wait for rollout readiness
 
 ## Configuration & secrets
@@ -148,6 +152,7 @@ Generated SVG files are stored in S3.
 - API exposes health/readiness endpoints for rollouts
 - Rolling deployments are used to minimize downtime
 - Workers can be scaled independently from the API
+- MCP can be scaled independently from API/worker, but session affinity is recommended because MCP sessions are stored in-memory per pod
 
 ## Planned next steps
 
