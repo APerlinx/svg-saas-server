@@ -7,6 +7,97 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model OAuthClient {
+  id      String    @id @default(cuid())
+  name    String
+  clientId    String    @unique @default(cuid())
+  // Secret must be hashed!
+  clientSecretHash    String
+
+  accessTokens   OAuthAccessToken[]
+  refreshTokens  OAuthRefreshToken[]
+  authCodes      OAuthAuthorizationCode[]
+  redirectUri String[]
+
+  createdAt DateTime    @default(now())
+  revokedAt DateTime?
+
+  @@index([clientId])              
+}
+
+model OAuthAuthorizationCode {
+  id    String    @id @default(cuid())
+
+  code    String    @unique @default(cuid())
+
+  oauthClientId String
+  oauthClient   OAuthClient @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime   @default(now())
+  expiresAt  DateTime
+  usedAt  DateTime?
+
+  codeChallenge   String
+  // Always same method: "S256" - spec compliance
+  codeChallengeMethod   String
+  redirectUri String
+
+  @@index([userId])
+  @@index([oauthClientId])
+}
+
+model OAuthAccessToken {
+  id    String   @id @default(cuid())
+
+  token   String    @unique
+  scopes String[]
+
+  oauthClientId String
+  oauthClient   OAuthClient @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
+  userId    String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  lastUsedAt DateTime?
+
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([oauthClientId])
+}
+
+model OAuthRefreshToken {
+  id String @id @default(cuid())
+
+  // hashed token secret (never store plain token)
+  token String @unique
+  scopes String[]
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  oauthClientId String
+  oauthClient   OAuthClient @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
+
+  familyId String @default(cuid())
+
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  lastUsedAt DateTime?
+
+  revokedAt DateTime?
+
+  replacedByTokenId String?       @unique
+  replacedByToken   OAuthRefreshToken? @relation("TokenReplacement", fields: [replacedByTokenId], references: [id])
+  replacesToken     OAuthRefreshToken? @relation("TokenReplacement")
+
+  @@index([userId])
+  @@index([oauthClientId])
+  @@index([familyId])
+}
+
 model User {
   id           String       @id @default(cuid())
   email        String       @unique
@@ -41,6 +132,9 @@ model User {
   notifications   Notification[]
   apiKeys         ApiKey[]
   apiKeyUsageLogs ApiKeyUsageLog[]
+  oauthAuthorizationCodes OAuthAuthorizationCode[]
+  oauthAccessTokens OAuthAccessToken[]
+  oauthRefreshTokens OAuthRefreshToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -322,3 +416,4 @@ enum GenerationSource {
   WEB_APP // Generated via web interface
   API // Generated via API key
 }
+
