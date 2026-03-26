@@ -20,15 +20,21 @@ router.post('/register', async (req: Request, res: Response) => {
   let { client_name, redirect_uris, grant_types, code_challenge_method } =
     req.body
 
-  if (!Array.isArray(redirect_uris))
-    return res.status(400).send('redirect_uris is required')
-  if (redirect_uris.some((uri) => typeof uri !== 'string'))
-    return res.status(400).send('redirect_uris must be an array of strings')
+  // redirect_uris is optional — Claude Code uses dynamic localhost ports
+  // and only sends the actual redirect_uri at /authorize time
+  if (redirect_uris !== undefined) {
+    if (!Array.isArray(redirect_uris))
+      return res.status(400).send('redirect_uris must be an array')
+    if (redirect_uris.some((uri) => typeof uri !== 'string'))
+      return res.status(400).send('redirect_uris must be an array of strings')
+  }
 
-  if (!grant_types || !Array.isArray(grant_types))
-    return res.status(400).send('grant_types is required and must be an array')
-  if (!grant_types.every((type) => allowedGrantTypes.includes(type)))
-    return res.status(400).send('Invalid grant_types')
+  if (grant_types !== undefined) {
+    if (!Array.isArray(grant_types))
+      return res.status(400).send('grant_types must be an array')
+    if (!grant_types.every((type: string) => allowedGrantTypes.includes(type)))
+      return res.status(400).send('Invalid grant_types')
+  }
 
   if (!client_name || typeof client_name !== 'string')
     return res.status(400).send('client_name is required')
@@ -39,7 +45,10 @@ router.post('/register', async (req: Request, res: Response) => {
     return res.status(400).send('Invalid code_challenge_method')
 
   client_name = sanitizeInput(client_name as string)
-  redirect_uris = redirect_uris.map((uri) => sanitizeInput(uri))
+  const sanitizedRedirectUris = Array.isArray(redirect_uris)
+    ? redirect_uris.map((uri: string) => sanitizeInput(uri))
+    : []
+
   let client_secret = crypto.randomBytes(32).toString('hex')
   const hashedPassword = await bcrypt.hash(client_secret, 10)
 
@@ -47,7 +56,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const client = await prisma.oAuthClient.create({
       data: {
         name: client_name,
-        redirectUri: redirect_uris as string[],
+        redirectUri: sanitizedRedirectUris,
         clientSecretHash: hashedPassword,
       },
     })
@@ -96,8 +105,13 @@ router.get('/authorize', async (req: Request, res: Response) => {
       where: { clientId: client_id },
     })
     if (!existingClient) return res.status(400).send('Invalid client_id')
-    if (!existingClient.redirectUri.includes(redirect_uri)) {
+    const isLocalhostRedirect = /^https?:\/\/localhost(:\d+)?(\/.*)?$/.test(redirect_uri)
+    const hasRegisteredUris = existingClient.redirectUri.length > 0
+    if (hasRegisteredUris && !existingClient.redirectUri.includes(redirect_uri)) {
       return res.status(400).send('Invalid redirect_uri')
+    }
+    if (!hasRegisteredUris && !isLocalhostRedirect) {
+      return res.status(400).send('Invalid redirect_uri: only localhost is allowed for dynamically registered clients')
     }
     const escape = (s: string) =>
       s
@@ -165,8 +179,13 @@ router.post('/authorize', async (req: Request, res: Response) => {
       where: { clientId: client_id, revokedAt: null },
     })
     if (!oAuthClient) return res.status(400).send('Invalid client_id')
-    if (!oAuthClient.redirectUri.includes(redirect_uri)) {
+    const hasRegisteredUris = oAuthClient.redirectUri.length > 0
+    const isLocalhostRedirect = /^https?:\/\/localhost(:\d+)?(\/.*)?$/.test(redirect_uri)
+    if (hasRegisteredUris && !oAuthClient.redirectUri.includes(redirect_uri)) {
       return res.status(400).send('Invalid redirect_uri')
+    }
+    if (!hasRegisteredUris && !isLocalhostRedirect) {
+      return res.status(400).send('Invalid redirect_uri: only localhost is allowed for dynamically registered clients')
     }
     const code = crypto.randomBytes(32).toString('hex')
     await prisma.oAuthAuthorizationCode.create({
