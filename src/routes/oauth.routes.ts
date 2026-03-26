@@ -22,8 +22,6 @@ router.post('/register', async (req: Request, res: Response) => {
   let { client_name, redirect_uris, grant_types, code_challenge_method } =
     req.body
 
-  // redirect_uris is optional — Claude Code uses dynamic localhost ports
-  // and only sends the actual redirect_uri at /authorize time
   if (redirect_uris !== undefined) {
     if (!Array.isArray(redirect_uris))
       return res.status(400).send('redirect_uris must be an array')
@@ -63,9 +61,14 @@ router.post('/register', async (req: Request, res: Response) => {
       },
     })
 
-    return res.json({
+    return res.status(201).json({
       client_id: client.clientId,
       client_secret,
+      client_name: client.name,
+      redirect_uris: client.redirectUri,
+      grant_types: allowedGrantTypes,
+      token_endpoint_auth_method: 'client_secret_post',
+      scope: 'mcp',
     })
   } catch (error) {
     logger.error({ err: error }, 'Error creating client')
@@ -107,13 +110,22 @@ router.get('/authorize', async (req: Request, res: Response) => {
       where: { clientId: client_id },
     })
     if (!existingClient) return res.status(400).send('Invalid client_id')
-    const isLocalhostRedirect = /^https?:\/\/localhost(:\d+)?(\/.*)?$/.test(redirect_uri)
+    const isLocalhostRedirect = /^https?:\/\/localhost(:\d+)?(\/.*)?$/.test(
+      redirect_uri,
+    )
     const hasRegisteredUris = existingClient.redirectUri.length > 0
-    if (hasRegisteredUris && !existingClient.redirectUri.includes(redirect_uri)) {
+    if (
+      hasRegisteredUris &&
+      !existingClient.redirectUri.includes(redirect_uri)
+    ) {
       return res.status(400).send('Invalid redirect_uri')
     }
     if (!hasRegisteredUris && !isLocalhostRedirect) {
-      return res.status(400).send('Invalid redirect_uri: only localhost is allowed for dynamically registered clients')
+      return res
+        .status(400)
+        .send(
+          'Invalid redirect_uri: only localhost is allowed for dynamically registered clients',
+        )
     }
     const escape = (s: string) =>
       s
@@ -182,12 +194,18 @@ router.post('/authorize', async (req: Request, res: Response) => {
     })
     if (!oAuthClient) return res.status(400).send('Invalid client_id')
     const hasRegisteredUris = oAuthClient.redirectUri.length > 0
-    const isLocalhostRedirect = /^https?:\/\/localhost(:\d+)?(\/.*)?$/.test(redirect_uri)
+    const isLocalhostRedirect = /^https?:\/\/localhost(:\d+)?(\/.*)?$/.test(
+      redirect_uri,
+    )
     if (hasRegisteredUris && !oAuthClient.redirectUri.includes(redirect_uri)) {
       return res.status(400).send('Invalid redirect_uri')
     }
     if (!hasRegisteredUris && !isLocalhostRedirect) {
-      return res.status(400).send('Invalid redirect_uri: only localhost is allowed for dynamically registered clients')
+      return res
+        .status(400)
+        .send(
+          'Invalid redirect_uri: only localhost is allowed for dynamically registered clients',
+        )
     }
     const code = crypto.randomBytes(32).toString('hex')
     await prisma.oAuthAuthorizationCode.create({
