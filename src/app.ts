@@ -12,6 +12,8 @@ import adminRoutes from './routes/admin.routes'
 import apiKeysRoutes from './routes/apiKeys.routes'
 import v1Routes from './routes/v1.routes'
 import plansRoutes from './routes/plans.routes'
+import oauthRoutes from './routes/oauth.routes'
+
 import paypalRoutes, { paypalWebhookHandler } from './routes/paypal.routes'
 
 import passport from './config/passport'
@@ -33,6 +35,7 @@ import pinoHttp from 'pino-http'
 import prisma from './lib/prisma'
 import { redisClient } from './lib/redis'
 import { INSTANCE_ID } from './lib/instanceId'
+import oauthWellKnownRoutes from './routes/oauthWellKnown.routes'
 
 const app = express()
 
@@ -219,7 +222,8 @@ app.use('/api/admin', cors(webAppCorsOptions), adminRoutes)
 
 // Public API routes - open CORS
 app.use('/v1', cors(publicApiCorsOptions), v1Routes)
-
+app.use('/.well-known', cors(publicApiCorsOptions), oauthWellKnownRoutes)
+app.use('/oauth', cors(publicApiCorsOptions), oauthRoutes)
 app.use(
   (
     err: any,

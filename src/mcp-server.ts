@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import express from 'express'
-import { apiKeyAuth } from './middleware/apiKeyAuth'
+import { oauthAuth } from './middleware/oauthAuth'
 import { processUserCreditRefill } from './services/creditRefillService'
 import {
   createGenerationJob,
@@ -16,18 +16,11 @@ import { SvgStyle, VALID_SVG_STYLES } from './constants/svgStyles'
 import { logger } from './lib/logger'
 import { createPlanRateLimiter } from './middleware/rateLimiter'
 import { incrementGenerationQuota } from './middleware/monthlyGenerationQuota'
-import { logApiUsage } from './services/usageTrackingService'
 import helmet from 'helmet'
 
 export const sessions = new Map<string, StreamableHTTPServerTransport>()
 
-function createMcpServer({
-  userId,
-  apiKeyId,
-}: {
-  userId: string
-  apiKeyId: string
-}) {
+function createMcpServer({ userId }: { userId: string }) {
   const server = new McpServer({ name: 'svg-saas', version: '1.0.0' })
 
   server.registerTool(
@@ -44,16 +37,14 @@ function createMcpServer({
       },
     },
     async ({ prompt, style }) => {
-      const startTime = Date.now()
       try {
         await processUserCreditRefill(userId)
-
+        // TODO: implement MCP usage tracking and quota management, and call it here to track usage of this tool
         const result = await createGenerationJob({
           userId,
           prompt,
           style: style as SvgStyle,
-          source: 'API',
-          apiKeyId,
+          source: 'MCP',
           idempotencyKey: crypto.randomUUID(),
         })
 
@@ -80,17 +71,6 @@ function createMcpServer({
         try {
           await enqueueGenerationJob(result.job.id, userId)
           await incrementGenerationQuota(userId)
-          logApiUsage({
-            apiKeyId,
-            userId,
-            endpoint: '/mcp/generate_svg',
-            method: 'POST',
-            statusCode: 202,
-            latencyMs: Date.now() - startTime,
-            creditsUsed: 1,
-          }).catch((err) =>
-            logger.error({ err }, 'Failed to log MCP API usage'),
-          )
         } catch (enqueueError) {
           await prisma.$transaction(async (tx) => {
             const refundClaim = await tx.generationJob.updateMany({
@@ -204,7 +184,7 @@ app.get('/mcp/health', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'mcp' })
 })
 
-app.post('/mcp', apiKeyAuth, createPlanRateLimiter(), async (req, res) => {
+app.post('/mcp', oauthAuth, createPlanRateLimiter(), async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string
 
   if (sessionId) {
@@ -234,11 +214,10 @@ app.post('/mcp', apiKeyAuth, createPlanRateLimiter(), async (req, res) => {
     return
   }
 
-  // New session — extract user context set by apiKeyAuth
+  // New session — extract user context set by oauthAuth
   const userId = (req.user as any).id
-  const apiKeyId = req.apiKey!.id
   const newSessionId = crypto.randomUUID()
-  const server = createMcpServer({ userId, apiKeyId })
+  const server = createMcpServer({ userId })
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => newSessionId,
   })
@@ -255,7 +234,7 @@ app.post('/mcp', apiKeyAuth, createPlanRateLimiter(), async (req, res) => {
   }
 })
 
-app.get('/mcp', apiKeyAuth, async (req, res) => {
+app.get('/mcp', oauthAuth, async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string
   if (!sessionId) {
     res.status(400).send('Missing MCP-Session-Id header')
@@ -274,7 +253,7 @@ app.get('/mcp', apiKeyAuth, async (req, res) => {
   }
 })
 
-app.delete('/mcp', apiKeyAuth, async (req, res) => {
+app.delete('/mcp', oauthAuth, async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string
   if (!sessionId) {
     res.status(400).send('Missing MCP-Session-Id header')
