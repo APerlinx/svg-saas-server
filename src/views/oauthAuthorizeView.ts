@@ -16,7 +16,14 @@ function escape(s: string): string {
 }
 
 export function oauthAuthorizeView(params: OAuthAuthorizeViewParams): string {
-  const { client_id, redirect_uri, code_challenge, code_challenge_method, scope, state } = params
+  const {
+    client_id,
+    redirect_uri,
+    code_challenge,
+    code_challenge_method,
+    scope,
+    state,
+  } = params
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -54,15 +61,15 @@ export function oauthAuthorizeView(params: OAuthAuthorizeViewParams): string {
       margin-bottom: 4px;
     }
 
-    .logo span { color: #7c6af7; }
+    .logo span { color: #c55a30; }
 
     .badge {
       display: inline-block;
       font-size: 11px;
       font-weight: 600;
-      color: #7c6af7;
-      background: rgba(124,106,247,0.12);
-      border: 1px solid rgba(124,106,247,0.25);
+      color: #c55a30;
+      background: rgba(197,90,48,0.12);
+      border: 1px solid rgba(197,90,48,0.25);
       border-radius: 20px;
       padding: 2px 10px;
       margin-bottom: 28px;
@@ -84,7 +91,7 @@ export function oauthAuthorizeView(params: OAuthAuthorizeViewParams): string {
       margin-bottom: 24px;
     }
 
-    p a { color: #7c6af7; text-decoration: none; }
+    p a { color: #c55a30; text-decoration: none; }
     p a:hover { text-decoration: underline; }
 
     label {
@@ -109,13 +116,13 @@ export function oauthAuthorizeView(params: OAuthAuthorizeViewParams): string {
       margin-bottom: 20px;
     }
 
-    input[type="text"]:focus { border-color: #7c6af7; }
+    input[type="text"]:focus { border-color: #c55a30; }
     input[type="text"]::placeholder { color: #444; }
 
     button {
       width: 100%;
       padding: 13px;
-      background: #7c6af7;
+      background: #c55a30;
       color: #fff;
       font-size: 15px;
       font-weight: 600;
@@ -125,7 +132,7 @@ export function oauthAuthorizeView(params: OAuthAuthorizeViewParams): string {
       transition: background 0.2s;
     }
 
-    button:hover { background: #6a59e0; }
+    button:hover { background: #b04a24; }
 
     .footer {
       margin-top: 20px;
