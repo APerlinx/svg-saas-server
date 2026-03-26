@@ -15,7 +15,9 @@ This document describes the **backend (this repo)** architecture and runtime flo
 flowchart TB
   Client[Clients\nBrowser / Frontend] -->|HTTPS + cookies| Ingress[Traefik Ingress\nTLS termination\nHost routing]
   Ingress --> ApiSvc[Service\nClusterIP\nchatsvg-api]
+  Ingress --> McpSvc[Service\nClusterIP\nchatsvg-mcp]
   ApiSvc --> API[API Pods\nNode.js/Express\n`src/server.ts` + `src/app.ts`]
+  McpSvc --> MCP[MCP Pods\nNode.js/Express\n`src/mcp-server.ts`]
 
   API --> Routes[Routes\n`src/routes/*`]
   Routes --> Auth[Auth\n`src/routes/auth.routes.ts`]
@@ -31,6 +33,8 @@ flowchart TB
   Prisma --> Postgres[(PostgreSQL\nNeon)]
 
   API --> Redis[(Redis\nAWS ElastiCache)]
+  MCP --> Redis
+  MCP --> Prisma
 
   Svg --> Queue[enqueueSvgGenerationJob\n`src/jobs/svgGenerationQueue.ts`]
   Queue --> Redis
@@ -40,6 +44,7 @@ flowchart TB
   Worker --> Sanitize[sanitizeInput/sanitizeSvg\n`src/utils/*`]
   Worker --> Prisma
   Worker --> S3[(AWS S3\nGenerated SVG artifacts)]
+  MCP --> Queue
 
   API -->|presign download URL| S3
   API --> Realtime[Socket.IO\njob updates\n`src/realtime/*`]
@@ -51,6 +56,7 @@ flowchart TB
 
 - `src/server.ts`: boots the HTTP server and Socket.IO.
 - `src/app.ts`: Express app setup (middleware, routing, error handling).
+- `src/mcp-server.ts`: standalone MCP Streamable HTTP server (`/mcp`).
 
 ---
 
@@ -64,6 +70,28 @@ Auth is cookie-based.
 - CSRF protection: double-submit cookie pattern for state-changing requests
 
 For detailed flows: `AUTHENTICATION.md`.
+
+MCP authentication is OAuth Bearer-token based and handled by `oauthAuth` middleware.
+
+---
+
+## MCP server (OAuth + Streamable HTTP)
+
+The MCP process is separate from the REST API process.
+
+- Transport endpoints: `POST /mcp`, `GET /mcp`, `DELETE /mcp`, `GET /mcp/health`
+- OAuth endpoints for MCP clients are exposed by the API app:
+  - `GET /.well-known/oauth-authorization-server`
+  - `POST /oauth/register`
+  - `GET/POST /oauth/authorize`
+  - `POST /oauth/token`
+- Registered tools: `list_styles`, `generate_svg`, `get_job_status`
+
+`generate_svg` reuses the same async queue + worker pipeline as `/api/svg` requests.
+
+Session transports are tracked in-memory per MCP pod by `MCP-Session-Id`.
+
+For full details: `MCP_SERVER.md`.
 
 ---
 
@@ -199,6 +227,6 @@ sequenceDiagram
 ## CI/CD (high level)
 
 - GitHub Actions builds Docker images and pushes to ECR.
-- A self-hosted runner on the EC2 instance updates k3s deployments via `kubectl set image`.
+- A self-hosted runner on the EC2 instance updates k3s deployments for API + worker + MCP via `kubectl set image`.
 
 See: `INFRA.md`.
