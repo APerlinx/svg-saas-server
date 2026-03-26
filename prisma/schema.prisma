@@ -252,7 +252,7 @@ model GenerationJob {
   aiAttempts         Int?
 
   // API tracking
-  source   GenerationSource @default(WEB_APP) // Track if from web app or API
+  source   GenerationSource @default(WEB_APP) 
   apiKeyId String? // If from API, which key was used
   apiKey   ApiKey?          @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
@@ -415,5 +415,6 @@ enum NotificationType {
 enum GenerationSource {
   WEB_APP // Generated via web interface
   API // Generated via API key
+  MCP // Generated via MCP client
 }
 

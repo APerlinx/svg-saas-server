@@ -18,10 +18,9 @@ jest.mock('../../../lib/logger', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
-jest.mock('../../../middleware/apiKeyAuth', () => ({
-  apiKeyAuth: (req: any, _res: any, next: any) => {
+jest.mock('../../../middleware/oauthAuth.js', () => ({
+  oauthAuth: (req: any, _res: any, next: any) => {
     req.user = { id: 'user-123' }
-    req.apiKey = { id: 'key-123', userId: 'user-123' }
     next()
   },
 }))
@@ -84,11 +83,12 @@ describe('MCP Server', () => {
         },
       })
     const sessionId = res.headers['mcp-session-id']
-    if (!sessionId) throw new Error(`MCP handshake failed: ${JSON.stringify(res.body)}`)
+    if (!sessionId)
+      throw new Error(`MCP handshake failed: ${JSON.stringify(res.body)}`)
     return sessionId
   }
 
-  it('rejects requests without an API key', async () => {
+  it('rejects requests without a Bearer token', async () => {
     const res = await request(app).post('/mcp').send({})
     expect(res.status).not.toBe(404)
   })

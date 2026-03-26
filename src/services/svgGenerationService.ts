@@ -3,7 +3,7 @@
  * Shared business logic for SVG generation used by both web app and API routes.
  */
 
-import { Prisma } from '@prisma/client'
+import { Prisma, GenerationSource } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { VALID_SVG_STYLES, SvgStyle } from '../constants/svgStyles'
 import { VALID_MODELS, DEFAULT_MODEL, AiModel } from '../constants/models'
@@ -53,7 +53,7 @@ export interface CreateGenerationJobParams {
   privacy?: boolean
   idempotencyKey: string
   requestId?: string
-  source?: 'WEB_APP' | 'API'
+  source?: GenerationSource
   apiKeyId?: string
 }
 
