@@ -93,8 +93,6 @@ router.get('/authorize', async (req: Request, res: Response) => {
     return res.status(400).send('code_challenge is required')
   if (!code_challenge_method || typeof code_challenge_method !== 'string')
     return res.status(400).send('code_challenge_method is required')
-  if (!scope || typeof scope !== 'string')
-    return res.status(400).send('scope is required')
   if (!state || typeof state !== 'string')
     return res.status(400).send('state is required')
 
@@ -102,7 +100,7 @@ router.get('/authorize', async (req: Request, res: Response) => {
   redirect_uri = sanitizeInput(redirect_uri)
   code_challenge = sanitizeInput(code_challenge)
   code_challenge_method = sanitizeInput(code_challenge_method)
-  scope = sanitizeInput(scope)
+  if (scope && typeof scope === 'string') scope = sanitizeInput(scope)
   state = sanitizeInput(state)
 
   try {
@@ -142,7 +140,7 @@ router.get('/authorize', async (req: Request, res: Response) => {
         <input type="hidden" name="redirect_uri" value="${escape(redirect_uri)}" />
         <input type="hidden" name="code_challenge" value="${escape(code_challenge)}" />
         <input type="hidden" name="code_challenge_method" value="${escape(code_challenge_method)}" />
-        <input type="hidden" name="scope" value="${escape(scope)}" />
+        <input type="hidden" name="scope" value="${scope ? escape(scope as string) : ''}" />
         <input type="hidden" name="state" value="${escape(state)}" />
         <button type="submit">Authorize</button>
       </form>
