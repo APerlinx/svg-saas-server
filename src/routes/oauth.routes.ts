@@ -2,7 +2,7 @@
  * OAuth routes for mcp
  */
 
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { Request, Response } from 'express'
 import { sanitizeInput } from '../utils/sanitizeInput'
 import prisma from '../lib/prisma'
@@ -12,6 +12,8 @@ import { logger } from '../lib/logger'
 import { hashApiKey } from '../services/apiKeyService'
 
 const router = Router()
+
+router.use(express.urlencoded({ extended: false }))
 
 const allowedGrantTypes = ['authorization_code', 'refresh_token']
 const allowedCodeChallengeMethods = ['S256']
