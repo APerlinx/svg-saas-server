@@ -10,6 +10,7 @@ import bcrypt from 'bcrypt'
 import crypto from 'crypto'
 import { logger } from '../lib/logger'
 import { hashApiKey } from '../services/apiKeyService'
+import { oauthAuthorizeView } from '../views/oauthAuthorizeView'
 
 const router = Router()
 
@@ -125,27 +126,15 @@ router.get('/authorize', async (req: Request, res: Response) => {
           'Invalid redirect_uri: only localhost is allowed for dynamically registered clients',
         )
     }
-    const escape = (s: string) =>
-      s
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-
-    res.send(`<html>
-    <body>
-      <form method="POST" action="/oauth/authorize">
-        <input type="text" name="api_key" placeholder="Enter your API key" required />
-        <input type="hidden" name="client_id" value="${escape(client_id)}" />
-        <input type="hidden" name="redirect_uri" value="${escape(redirect_uri)}" />
-        <input type="hidden" name="code_challenge" value="${escape(code_challenge)}" />
-        <input type="hidden" name="code_challenge_method" value="${escape(code_challenge_method)}" />
-        <input type="hidden" name="scope" value="${scope ? escape(scope as string) : ''}" />
-        <input type="hidden" name="state" value="${escape(state)}" />
-        <button type="submit">Authorize</button>
-      </form>
-    </body>
-  </html>`)
+    res.setHeader('Content-Security-Policy', "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'")
+    res.send(oauthAuthorizeView({
+      client_id,
+      redirect_uri,
+      code_challenge,
+      code_challenge_method,
+      scope: scope && typeof scope === 'string' ? scope : '',
+      state,
+    }))
   } catch (error) {
     logger.error({ err: error }, 'Error fetching client')
     return res.status(500).send('Error fetching client')
