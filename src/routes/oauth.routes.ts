@@ -126,7 +126,7 @@ router.get('/authorize', async (req: Request, res: Response) => {
           'Invalid redirect_uri: only localhost is allowed for dynamically registered clients',
         )
     }
-    res.setHeader('Content-Security-Policy', "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'")
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
     res.send(oauthAuthorizeView({
       client_id,
       redirect_uri,
