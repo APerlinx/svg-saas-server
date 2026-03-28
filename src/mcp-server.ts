@@ -237,7 +237,11 @@ app.post('/mcp', oauthAuth, createPlanRateLimiter(), async (req, res) => {
     // Session not found (server restarted). Only recreate if this is an
     // initialize request — otherwise 404 so the client knows to reinitialize.
     if (req.body?.method !== 'initialize') {
-      res.status(404).json({ error: 'Session not found' })
+      res.status(404).json({
+        error: 'Session expired',
+        message:
+          'Your ChatSVG MCP session has expired (server was restarted). Please reconnect: in Claude Code press Ctrl+Shift+P → "MCP: Restart MCP Server".',
+      })
       return
     }
     logger.info({ sessionId }, 'Session not found, recreating on initialize')
