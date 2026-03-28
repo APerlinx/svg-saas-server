@@ -46,6 +46,18 @@ export async function oauthAuth(
       })
       .catch(() => {})
 
+    if (accessToken.apiKeyId) {
+      prisma.apiKey
+        .update({
+          where: { id: accessToken.apiKeyId },
+          data: {
+            lastUsedAt: new Date(),
+            usageCount: { increment: 1 },
+          },
+        })
+        .catch(() => {})
+    }
+
     req.user = { id: accessToken.userId, apiKeyId: accessToken.apiKeyId } as any
     next()
   } catch (error) {
