@@ -212,35 +212,37 @@ app.post('/mcp', oauthAuth, createPlanRateLimiter(), async (req, res) => {
 
   if (sessionId) {
     const transport = sessions.get(sessionId)
-    if (!transport) {
-      res.status(404).json({ error: 'Session not found' })
+
+    if (transport) {
+      const isNotification =
+        req.body &&
+        req.body.jsonrpc === '2.0' &&
+        req.body.id === undefined &&
+        req.body.method
+      if (isNotification) {
+        logger.debug({ method: req.body.method }, 'MCP notification received')
+        res.status(202).send()
+        return
+      }
+
+      try {
+        await transport.handleRequest(req, res, req.body)
+      } catch (error) {
+        logger.error({ error }, 'Error handling MCP request')
+        res.status(500).json({ error: 'Internal server error' })
+      }
       return
     }
 
-    const isNotification =
-      req.body &&
-      req.body.jsonrpc === '2.0' &&
-      req.body.id === undefined &&
-      req.body.method
-    if (isNotification) {
-      logger.debug({ method: req.body.method }, 'MCP notification received')
-      res.status(202).send()
-      return
-    }
-
-    try {
-      await transport.handleRequest(req, res, req.body)
-    } catch (error) {
-      logger.error({ error }, 'Error handling MCP request')
-      res.status(500).json({ error: 'Internal server error' })
-    }
-    return
+    // Session not found (server restarted) — Bearer token already validated by
+    // oauthAuth, so we can safely recreate the session for this authenticated user.
+    logger.info({ sessionId }, 'Session not found, recreating for authenticated user')
   }
 
-  // New session — extract user context set by oauthAuth
+  // New session (or recreated after server restart) — extract user context set by oauthAuth
   const userId = (req.user as any).id
   const apiKeyId = (req.user as any).apiKeyId as string | undefined
-  const newSessionId = crypto.randomUUID()
+  const newSessionId = sessionId ?? crypto.randomUUID()
   const server = createMcpServer({ userId, apiKeyId })
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => newSessionId,
