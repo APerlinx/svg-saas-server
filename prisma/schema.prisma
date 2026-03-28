@@ -34,6 +34,8 @@ model OAuthAuthorizationCode {
   oauthClient   OAuthClient @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
   userId  String
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeyId String?
+  apiKey   ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
   createdAt  DateTime   @default(now())
   expiresAt  DateTime
@@ -58,6 +60,8 @@ model OAuthAccessToken {
   oauthClient   OAuthClient @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
   userId    String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeyId  String?
+  apiKey    ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
   createdAt  DateTime  @default(now())
   expiresAt  DateTime
@@ -80,6 +84,8 @@ model OAuthRefreshToken {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   oauthClientId String
   oauthClient   OAuthClient @relation(fields: [oauthClientId], references: [id], onDelete: Cascade)
+  apiKeyId  String?
+  apiKey    ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
   familyId String @default(cuid())
 
@@ -320,8 +326,11 @@ model ApiKey {
   ipWhitelist String[] @default([]) // Optional IP restrictions
 
   // Relations
-  generationJobs  GenerationJob[]
-  apiKeyUsageLogs ApiKeyUsageLog[]
+  generationJobs          GenerationJob[]
+  apiKeyUsageLogs         ApiKeyUsageLog[]
+  oauthAuthorizationCodes OAuthAuthorizationCode[]
+  oauthAccessTokens       OAuthAccessToken[]
+  oauthRefreshTokens      OAuthRefreshToken[]
 
   @@index([userId])
   @@index([keyHash])

@@ -16,11 +16,12 @@ import { SvgStyle, VALID_SVG_STYLES } from './constants/svgStyles'
 import { logger } from './lib/logger'
 import { createPlanRateLimiter } from './middleware/rateLimiter'
 import { incrementGenerationQuota } from './middleware/monthlyGenerationQuota'
+import { logApiUsage } from './services/usageTrackingService'
 import helmet from 'helmet'
 
 export const sessions = new Map<string, StreamableHTTPServerTransport>()
 
-function createMcpServer({ userId }: { userId: string }) {
+function createMcpServer({ userId, apiKeyId }: { userId: string; apiKeyId?: string }) {
   const server = new McpServer({ name: 'svg-saas', version: '1.0.0' })
 
   server.registerTool(
@@ -37,9 +38,9 @@ function createMcpServer({ userId }: { userId: string }) {
       },
     },
     async ({ prompt, style }) => {
+      const startedAt = Date.now()
       try {
         await processUserCreditRefill(userId)
-        // TODO: implement MCP usage tracking and quota management, and call it here to track usage of this tool
         const result = await createGenerationJob({
           userId,
           prompt,
@@ -63,6 +64,17 @@ function createMcpServer({ userId }: { userId: string }) {
         })
 
         if (!charged) {
+          if (apiKeyId) {
+            logApiUsage({
+              apiKeyId,
+              userId,
+              endpoint: '/mcp/generate_svg',
+              method: 'POST',
+              statusCode: 402,
+              latencyMs: Date.now() - startedAt,
+              creditsUsed: 0,
+            }).catch(() => {})
+          }
           return {
             content: [{ type: 'text', text: 'Error: Insufficient credits' }],
           }
@@ -71,6 +83,17 @@ function createMcpServer({ userId }: { userId: string }) {
         try {
           await enqueueGenerationJob(result.job.id, userId)
           await incrementGenerationQuota(userId)
+          if (apiKeyId) {
+            logApiUsage({
+              apiKeyId,
+              userId,
+              endpoint: '/mcp/generate_svg',
+              method: 'POST',
+              statusCode: 200,
+              latencyMs: Date.now() - startedAt,
+              creditsUsed: 1,
+            }).catch(() => {})
+          }
         } catch (enqueueError) {
           await prisma.$transaction(async (tx) => {
             const refundClaim = await tx.generationJob.updateMany({
@@ -216,8 +239,9 @@ app.post('/mcp', oauthAuth, createPlanRateLimiter(), async (req, res) => {
 
   // New session — extract user context set by oauthAuth
   const userId = (req.user as any).id
+  const apiKeyId = (req.user as any).apiKeyId as string | undefined
   const newSessionId = crypto.randomUUID()
-  const server = createMcpServer({ userId })
+  const server = createMcpServer({ userId, apiKeyId })
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => newSessionId,
   })

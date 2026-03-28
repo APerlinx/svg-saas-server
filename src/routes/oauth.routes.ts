@@ -126,15 +126,20 @@ router.get('/authorize', async (req: Request, res: Response) => {
           'Invalid redirect_uri: only localhost is allowed for dynamically registered clients',
         )
     }
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
-    res.send(oauthAuthorizeView({
-      client_id,
-      redirect_uri,
-      code_challenge,
-      code_challenge_method,
-      scope: scope && typeof scope === 'string' ? scope : '',
-      state,
-    }))
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'",
+    )
+    res.send(
+      oauthAuthorizeView({
+        client_id,
+        redirect_uri,
+        code_challenge,
+        code_challenge_method,
+        scope: scope && typeof scope === 'string' ? scope : '',
+        state,
+      }),
+    )
   } catch (error) {
     logger.error({ err: error }, 'Error fetching client')
     return res.status(500).send('Error fetching client')
@@ -200,6 +205,7 @@ router.post('/authorize', async (req: Request, res: Response) => {
         code,
         oauthClientId: oAuthClient.id,
         userId,
+        apiKeyId: userKey.id,
         codeChallenge: code_challenge,
         codeChallengeMethod: code_challenge_method,
         redirectUri: redirect_uri,
@@ -263,6 +269,7 @@ router.post('/token', async (req: Request, res: Response) => {
           codeChallenge: true,
           userId: true,
           oauthClientId: true,
+          apiKeyId: true,
         },
       })
       if (!authCode) return res.status(400).send('Invalid or expired code')
@@ -295,6 +302,7 @@ router.post('/token', async (req: Request, res: Response) => {
             token: accessToken,
             userId: authCode.userId,
             oauthClientId: authCode.oauthClientId,
+            apiKeyId: authCode.apiKeyId ?? undefined,
             expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           },
         })
@@ -304,6 +312,7 @@ router.post('/token', async (req: Request, res: Response) => {
             token: refreshToken,
             userId: authCode.userId,
             oauthClientId: authCode.oauthClientId,
+            apiKeyId: authCode.apiKeyId ?? undefined,
             expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           },
         })
@@ -327,7 +336,7 @@ router.post('/token', async (req: Request, res: Response) => {
           expiresAt: { gt: new Date() },
           revokedAt: null,
         },
-        select: { userId: true, oauthClientId: true },
+        select: { userId: true, oauthClientId: true, apiKeyId: true },
       })
       if (!refreshTokenRecord)
         return res.status(400).send('Invalid or expired refresh token')
@@ -348,6 +357,7 @@ router.post('/token', async (req: Request, res: Response) => {
             token: accessToken,
             userId: refreshTokenRecord.userId,
             oauthClientId: refreshTokenRecord.oauthClientId,
+            apiKeyId: refreshTokenRecord.apiKeyId ?? undefined,
             expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           },
         })
@@ -357,6 +367,7 @@ router.post('/token', async (req: Request, res: Response) => {
             token: newRefreshToken,
             userId: refreshTokenRecord.userId,
             oauthClientId: refreshTokenRecord.oauthClientId,
+            apiKeyId: refreshTokenRecord.apiKeyId ?? undefined,
             expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           },
         })
