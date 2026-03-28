@@ -27,6 +27,7 @@ export async function oauthAuth(
       select: {
         id: true,
         userId: true,
+        apiKeyId: true,
       },
     })
 
@@ -45,7 +46,7 @@ export async function oauthAuth(
       })
       .catch(() => {})
 
-    req.user = { id: accessToken.userId } as any
+    req.user = { id: accessToken.userId, apiKeyId: accessToken.apiKeyId } as any
     next()
   } catch (error) {
     logger.error({ error }, 'Error during OAuth authentication')
