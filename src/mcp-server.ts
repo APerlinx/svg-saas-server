@@ -234,9 +234,17 @@ app.post('/mcp', oauthAuth, createPlanRateLimiter(), async (req, res) => {
       return
     }
 
-    // Session not found (server restarted) — Bearer token already validated by
-    // oauthAuth, so we can safely recreate the session for this authenticated user.
-    logger.info({ sessionId }, 'Session not found, recreating for authenticated user')
+    // Session not found (server restarted). Only recreate if this is an
+    // initialize request — otherwise 404 so the client knows to reinitialize.
+    if (req.body?.method !== 'initialize') {
+      res.status(404).json({
+        error: 'Session expired',
+        message:
+          'Your ChatSVG MCP session has expired (server was restarted). Please reconnect: in Claude Code press Ctrl+Shift+P → "MCP: Restart MCP Server".',
+      })
+      return
+    }
+    logger.info({ sessionId }, 'Session not found, recreating on initialize')
   }
 
   // New session (or recreated after server restart) — extract user context set by oauthAuth
